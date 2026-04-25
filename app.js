@@ -225,7 +225,7 @@ const defaultSettings = {
   streakRule: 'weeks5',
   onboarded: false,
   volumes: { drone: 0.5, metro: 0.7, app: 1.0 },
-  drone_on: true, metro_on: true,
+  drone_on: true, metro_on: false,
   acousticConstraints: [
     'One pitch only, 15 min (Lucier-style)',
     'Sul pont / noise only, no pitched material',
@@ -297,9 +297,15 @@ class AudioEngine {
                                     [[fund,1.0],[fund*1.5,0.7],[fund*2,0.7],[fund*2,0.5]];
     const masterGain = off.createGain(); masterGain.gain.value = sound==='sine'?0.25:0.18; masterGain.connect(off.destination);
     // Slow pluck-like envelope cycle ~2s per body staggered
-    bodies.forEach((b, bi) => {
+    bodies.forEach((b) => {
       const [freq, g0] = b;
-      const bus = off.createGain(); bus.gain.value = g0*0.4; bus.connect(masterGain);
+      const bus = off.createGain();
+      // Steady, constant drone: smooth fade-in only at the loop seam
+      bus.gain.setValueAtTime(0.0001, 0);
+      bus.gain.linearRampToValueAtTime(g0*0.45, 0.4);
+      bus.gain.setValueAtTime(g0*0.45, seconds-0.4);
+      bus.gain.linearRampToValueAtTime(0.0001, seconds);
+      bus.connect(masterGain);
       ji.forEach((r, i) => {
         const osc = off.createOscillator();
         osc.type = 'sine';
@@ -309,15 +315,6 @@ class AudioEngine {
         osc.connect(og).connect(bus);
         osc.start(); osc.stop(seconds);
       });
-      // amplitude pulse for pluck feel
-      const lfoGain = off.createGain(); lfoGain.gain.value = 0.4;
-      bus.gain.setValueAtTime(0.0001, 0);
-      const step = 2.0;
-      const start = (bi * 0.5) % 2.0;
-      for (let t = start; t < seconds; t += step) {
-        bus.gain.setTargetAtTime(g0*0.5, t, 0.02);
-        bus.gain.setTargetAtTime(g0*0.15, t+0.6, 0.8);
-      }
     });
     const buf = await off.startRendering();
     this.droneBuffers[key] = buf;
@@ -333,16 +330,52 @@ class AudioEngine {
   async startDrone(pc) {
     await this.resume();
     this.stopDrone();
-    const buf = await this.getDroneBuffer(pc);
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf; src.loop = true;
-    src.connect(this.droneGain);
-    src.start();
-    this.droneNode = src;
+    // Real-time, constant drone — sustained, non-pulsing.
+    const fund = this.pcToFreq(pc, 3);
+    const sound = SETTINGS.droneSound;
+    const ji = [1, 2, 3, 4, 5, 6, 7, 8];
+    const amps = sound==='shruti' ? [1.0, 0.55, 0.75, 0.35, 0.28, 0.18, 0.08, 0.06] :
+                 sound==='sine'   ? [1.0, 0.2, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0] :
+                 sound==='pad'    ? [1.0, 0.45, 0.25, 0.5, 0.18, 0.09, 0.0, 0.04] :
+                                    [1.0, 0.6, 0.9, 0.4, 0.35, 0.15, 0.12, 0.07];
+    const bodies = sound==='sine' ? [[fund,1.0]] :
+                   sound==='pad'  ? [[fund,1.0],[fund*1.5,0.5],[fund*2,0.6]] :
+                                    [[fund,1.0],[fund*1.5,0.7],[fund*2,0.7]];
+    const masterScale = sound==='sine' ? 0.25 : 0.18;
+    const root = this.ctx.createGain();
+    root.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+    root.gain.linearRampToValueAtTime(masterScale, this.ctx.currentTime + 0.8);
+    root.connect(this.droneGain);
+    const oscs = [];
+    bodies.forEach(([freq, g0]) => {
+      const bus = this.ctx.createGain(); bus.gain.value = g0 * 0.45;
+      bus.connect(root);
+      ji.forEach((r, i) => {
+        if (!amps[i]) return;
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq * r;
+        const og = this.ctx.createGain();
+        og.gain.value = amps[i] * 0.5;
+        osc.connect(og).connect(bus);
+        osc.start();
+        oscs.push(osc);
+      });
+    });
+    this.droneNode = { oscs, root };
     this.currentDronePc = pc;
   }
   stopDrone() {
-    if (this.droneNode) { try { this.droneNode.stop(); } catch(e){} this.droneNode.disconnect(); this.droneNode = null; }
+    if (!this.droneNode) return;
+    try {
+      const now = this.ctx.currentTime;
+      this.droneNode.root.gain.cancelScheduledValues(now);
+      this.droneNode.root.gain.setValueAtTime(this.droneNode.root.gain.value, now);
+      this.droneNode.root.gain.linearRampToValueAtTime(0.0001, now + 0.15);
+      const oscs = this.droneNode.oscs;
+      setTimeout(()=>{ oscs.forEach(o => { try { o.stop(); o.disconnect(); } catch(e){} }); }, 200);
+    } catch(e){}
+    this.droneNode = null;
   }
   fadeDrone(ms=800) {
     if (!this.droneGain) return;
@@ -354,7 +387,8 @@ class AudioEngine {
   }
 
   // --- Metronome
-  startMetronome(bpm, accentEvery=0) {
+  async startMetronome(bpm, accentEvery=0) {
+    await this.resume();
     this.metroBpm = bpm;
     this.metroPlaying = true;
     if (!this.ctx) return;
@@ -891,28 +925,31 @@ function scalesTechnicalSteps(info, dow, light) {
     return out;
   })();
   const tonicArp = (()=>{
-    const ints = info.minor ? [0,3,7,12] : [0,4,7,12];
+    const ints = info.minor ? [0,3,7] : [0,4,7];
     const out = [];
     for (let o=0;o<3;o++) ints.forEach(iv => out.push({pc:(T+iv)%12, octave:3+o+Math.floor((T+iv)/12), name:NOTE_NAMES[(T+iv)%12]}));
+    out.push({pc:T, octave:6, name:NOTE_NAMES[T]}); // top tonic to turn around
     for (let o=2;o>=0;o--) ints.slice().reverse().forEach(iv => out.push({pc:(T+iv)%12, octave:3+o+Math.floor((T+iv)/12), name:NOTE_NAMES[(T+iv)%12]}));
     return out;
   })();
   const dom7Root = (T+7)%12;
   const dom7Arp = (()=>{
-    const ints = [0,4,7,10,12];
+    const ints = [0,4,7,10];
     const out = [];
     for (let o=0;o<3;o++) ints.forEach(iv => out.push({pc:(dom7Root+iv)%12, octave:3+o+Math.floor((dom7Root+iv)/12), name:NOTE_NAMES[(dom7Root+iv)%12]}));
+    out.push({pc:dom7Root, octave:6, name:NOTE_NAMES[dom7Root]});
     for (let o=2;o>=0;o--) ints.slice().reverse().forEach(iv => out.push({pc:(dom7Root+iv)%12, octave:3+o+Math.floor((dom7Root+iv)/12), name:NOTE_NAMES[(dom7Root+iv)%12]}));
     return out;
   })();
   const extraArpIsSubdominant = (info.weekNum % 2 === 1); // alternate
   const extraRoot = extraArpIsSubdominant ? (T+5)%12 : (T+11)%12;
   const extraInts = extraArpIsSubdominant
-    ? (info.minor ? [0,3,7,12] : [0,4,7,12])
-    : [0,3,6,9,12];
+    ? (info.minor ? [0,3,7] : [0,4,7])
+    : [0,3,6,9];
   const extraArp = (()=>{
     const out = [];
     for (let o=0;o<3;o++) extraInts.forEach(iv => out.push({pc:(extraRoot+iv)%12, octave:3+o+Math.floor((extraRoot+iv)/12), name:NOTE_NAMES[(extraRoot+iv)%12]}));
+    out.push({pc:extraRoot, octave:6, name:NOTE_NAMES[extraRoot]});
     for (let o=2;o>=0;o--) extraInts.slice().reverse().forEach(iv => out.push({pc:(extraRoot+iv)%12, octave:3+o+Math.floor((extraRoot+iv)/12), name:NOTE_NAMES[(extraRoot+iv)%12]}));
     return out;
   })();
@@ -1029,7 +1066,8 @@ function screenScalesTechnical() {
     }
     async function begin(){
       started = true;
-      if (SETTINGS.drone_on) AUDIO.startDrone(dronePc);
+      await AUDIO.resume();
+      if (SETTINGS.drone_on) await AUDIO.startDrone(dronePc);
       if (SETTINGS.metro_on) AUDIO.startMetronome(SESSION.tempo);
       logEvent('scales_technical_begin', { tempo: SESSION.tempo, drone: NOTE_NAMES[dronePc] });
       showStep(0);
@@ -1222,54 +1260,108 @@ function modalStepsFor(info, dow, light) {
 }
 
 function screenScalesModal() {
+  CURRENT_SCREEN = 'scales_modal';
   render(async (root) => {
     const info = weekInfo();
     const rawDow = todayDow();
-    const dow = (rawDow<1 || rawDow>5) ? 5 : rawDow; // weekends use Friday's modal focus instead of skipping
+    const dow = (rawDow<1 || rawDow>5) ? 5 : rawDow;
     const data = modalStepsFor(info, dow, SESSION.light);
-    let runner = null;
+    const steps = data.steps;
+    let stepIdx = -1;
+    let stepStart = 0;
+    const stepTimes = [];
+    let stepTickT = null;
+    let started = false;
+    logEvent('scales_modal_open', { mode: data.modeName });
+
     root.appendChild(el('div',{class:'band-top'},[
       el('div',{},[
-        el('div',{class:'eyebrow'},'Scales · Modal · —/4'),
+        el('div',{class:'eyebrow'},'Scales · Modal'),
         el('h1',{}, data.modeName),
       ]),
-      el('div',{class:'timer', id:'timer'}, '—'),
+      el('div',{class:'step-counter', id:'stepCounter'}, `– / ${steps.length}`),
     ]));
     const body = el('div',{class:'body stack'}); root.appendChild(body);
-    body.appendChild(el('p',{}, data.modeNotes.join(' ')));
-    body.appendChild(el('p',{class:'dim'}, `Characteristic degree: ${data.charDegreeNote} — ${data.charDegreeText}`));
-    body.appendChild(el('p',{class:'dim'}, `Tonic triad: ${data.tonicTriadLabel}  ·  Characteristic chord: ${data.charChordLabel}`));
-    const stepTitle = el('h2',{id:'stepTitle'}, 'Ready');
-    const stepSub = el('p',{id:'stepSub',class:'dim'}, '');
-    body.appendChild(stepTitle); body.appendChild(stepSub);
-    const notation = el('div',{class:'notation',id:'notation'}); body.appendChild(notation);
-    root.appendChild(el('div',{class:'band-bottom'},[
-      el('button',{class:'big primary', onclick: go}, [el('span',{class:'inner'}, 'Start')]),
-      el('button',{class:'chip', onclick: ()=>{ runner && runner.extend(30000); toast('+30s'); }}, 'Hold +30s'),
-      el('button',{class:'chip', onclick: openDrawer}, 'Audio'),
-      el('button',{class:'chip', onclick: toggleRecord}, 'Record'),
+
+    body.appendChild(buildAudioPanel({ dronePc: data.dronePc, droneLabel: NOTE_NAMES[data.dronePc], onTempoChange: bpm => logEvent('tempo_change', bpm) }));
+
+    body.appendChild(el('div',{class:'meta-row'},[
+      el('div',{class:'meta-item'},[
+        el('div',{class:'meta-label'}, 'Mode notes'),
+        el('div',{class:'meta-value'}, data.modeNotes.join('  ')),
+      ]),
+      el('div',{class:'meta-item'},[
+        el('div',{class:'meta-label'}, 'Characteristic'),
+        el('div',{class:'meta-value'}, `${data.charDegreeNote} — ${data.charDegreeText}`),
+      ]),
+      el('div',{class:'meta-item'},[
+        el('div',{class:'meta-label'}, 'Tonic / characteristic chord'),
+        el('div',{class:'meta-value'}, `${data.tonicTriadLabel}  ·  ${data.charChordLabel}`),
+      ]),
     ]));
-    async function go() {
-      if (SETTINGS.drone_on) AUDIO.startDrone(data.dronePc);
+
+    const stepTitle = el('h2',{id:'stepTitle', class:'step-title'}, 'Ready when you are');
+    const stepSub = el('p',{id:'stepSub',class:'dim step-sub'}, 'Tap Start to begin.');
+    body.appendChild(stepTitle); body.appendChild(stepSub);
+    const noteLine = el('div',{class:'note-line', id:'noteLine'}, '');
+    body.appendChild(noteLine);
+    const stepClock = el('div',{class:'step-clock', id:'stepClock'}, '');
+    body.appendChild(stepClock);
+
+    const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
+    startBtn.addEventListener('click', () => { if (!started) begin(); else nextStep(); });
+    const recBtn = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
+    root.appendChild(el('div',{class:'band-bottom'},[startBtn, recBtn]));
+
+    function tick(){
+      if (stepIdx<0) return;
+      const elapsed = Date.now() - stepStart;
+      const target = (steps[stepIdx].durMs||60000);
+      const over = elapsed >= target;
+      $('#stepClock').textContent = `${fmtSec(elapsed/1000)}  ·  target ${fmtSec(target/1000)}`;
+      $('#stepClock').classList.toggle('reached', over);
+      stepTickT = setTimeout(tick, 250);
+    }
+    function showStep(i){
+      stepIdx = i; stepStart = Date.now();
+      const s = steps[i];
+      $('#stepCounter').textContent = `${i+1} / ${steps.length}`;
+      $('#stepTitle').textContent = s.title;
+      $('#stepSub').textContent = s.sub;
+      if (s.freeImprov) {
+        AUDIO.stopMetronome();
+        $('#noteLine').textContent = 'Free improvisation — make the mode sound.';
+      } else {
+        $('#noteLine').textContent = notesAsLine(s.notes);
+      }
+      $('#startInner').textContent = (i === steps.length-1) ? 'Finish' : 'Next';
+      logEvent('modal_step_start', { i, title: s.title });
+      clearTimeout(stepTickT); tick();
+    }
+    function nextStep(){
+      const ms = Date.now() - stepStart;
+      stepTimes[stepIdx] = ms;
+      logEvent('modal_step_done', { i: stepIdx, ms });
+      if (stepIdx >= steps.length-1) return finish();
+      AUDIO.chime();
+      showStep(stepIdx+1);
+    }
+    async function begin(){
+      started = true;
+      await AUDIO.resume();
+      if (SETTINGS.drone_on) await AUDIO.startDrone(data.dronePc);
       if (SETTINGS.metro_on) AUDIO.startMetronome(SESSION.tempo);
-      runner = stepRunner({
-        stepDurationsMs: data.steps.map(s=>s.durMs),
-        onStep: i => {
-          const s = data.steps[i];
-          $('.eyebrow', root).textContent = `Scales · Modal · ${i+1}/4`;
-          $('#stepTitle').textContent = s.title;
-          $('#stepSub').textContent = s.sub;
-          if (s.freeImprov) { AUDIO.stopMetronome(); notation.innerHTML='<div style="padding:18px;color:#111;">Free improvisation — make the mode sound.</div>'; }
-          else renderNotation(notation, s.notes);
-        },
-        onTick: (i, rem) => $('#timer').textContent = fmtSec(rem/1000),
-        onComplete: async ()=>{
-          AUDIO.stopMetronome(); AUDIO.fadeDrone(500);
-          SESSION.blocks.scales.modal = { done:true, mode: data.modeName };
-          persistSession();
-          transition('Scales · Chord-scale', screenScalesChordScale);
-        }
-      });
+      logEvent('scales_modal_begin', { mode: data.modeName });
+      showStep(0);
+    }
+    async function finish(){
+      clearTimeout(stepTickT);
+      AUDIO.stopMetronome();
+      AUDIO.fadeDrone(500);
+      SESSION.blocks.scales.modal = { done:true, mode: data.modeName, stepTimesMs: stepTimes };
+      persistSession();
+      logEvent('scales_modal_complete', { stepTimes });
+      await transition('Scales · Chord-scale', screenScalesChordScale);
     }
   });
 }

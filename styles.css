@@ -22,9 +22,9 @@ body {
   padding: 20px 22px 16px;
   min-height: 0;
 }
-.band-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; }
-.band-top .eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; opacity: .85; }
-.band-top h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin-top: 4px; }
+.band-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 12px; padding-bottom: 4px; }
+.band-top .eyebrow { font-size: 11px; letter-spacing: .26em; text-transform: uppercase; font-weight: 600; opacity: .7; }
+.band-top h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.05; margin-top: 6px; }
 .timer { font-variant-numeric: tabular-nums; font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
 .timer.sm { font-size: 22px; }
 .body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; margin: 10px 0; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -34,12 +34,14 @@ body {
 .band-bottom { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 button, .btn {
   font: inherit; color: inherit; cursor: pointer;
-  border: 2px solid currentColor; background: transparent;
+  border: 1.5px solid currentColor; background: transparent;
   padding: 14px 18px; min-height: 56px; min-width: 56px;
-  font-weight: 600; letter-spacing: -0.01em;
-  border-radius: 0;
+  font-weight: 600; letter-spacing: -0.005em;
+  border-radius: 2px;
   -webkit-appearance: none; appearance: none;
+  transition: transform 80ms ease, opacity 120ms ease;
 }
+button:active, .btn:active { transform: scale(0.97); }
 button.primary, .btn.primary { background: currentColor; }
 button.primary > *, .btn.primary > * { color: var(--bg); }
 button.primary { color: inherit; }
@@ -141,7 +143,7 @@ ul.bare { list-style: none; }
 }
 .home-body { justify-content: flex-start !important; gap: 0 !important; padding-top: 8px; }
 .menu { display: flex; flex-direction: column; gap: 18px; padding: 8px 4px 20px; }
-.menu-item { padding: 14px 0; border-bottom: 1px solid currentColor; border-color: currentColor; opacity: 1; }
+.menu-item { padding: 16px 2px; border-bottom: 1px solid currentColor; border-color: rgba(255,255,255,0.2); opacity: 1; }
 .menu-item:last-of-type { border-bottom: none; }
 .menu-eyebrow {
   font-family: 'Inter', sans-serif;
@@ -150,8 +152,8 @@ ul.bare { list-style: none; }
 }
 .menu-primary {
   font-family: 'Instrument Sans', 'Inter', sans-serif;
-  font-size: clamp(26px, 6.5vw, 34px);
-  font-weight: 500; letter-spacing: -0.005em; line-height: 1.15;
+  font-size: clamp(24px, 6.2vw, 32px);
+  font-weight: 600; letter-spacing: -0.02em; line-height: 1.15;
 }
 .menu-hint {
   font-family: 'Instrument Sans', 'Inter', sans-serif;
@@ -210,16 +212,27 @@ ul.bare { list-style: none; }
 .step-sub { font-size: 15px !important; opacity: .8 !important; }
 .note-line {
   font-family: 'Instrument Sans', 'Inter', sans-serif;
-  font-size: clamp(28px, 7vw, 42px); font-weight: 500;
-  letter-spacing: .05em; line-height: 1.2;
-  padding: 16px 4px; text-align: center;
+  font-size: clamp(26px, 6.8vw, 38px); font-weight: 600;
+  letter-spacing: -0.005em; line-height: 1.25;
+  padding: 18px 6px; text-align: center;
   border-top: 1px solid currentColor; border-bottom: 1px solid currentColor;
+  border-color: rgba(255,255,255,0.22);
+  font-variant-numeric: tabular-nums;
 }
 .step-clock {
-  font-variant-numeric: tabular-nums; font-size: 16px; letter-spacing: .08em;
-  text-align: center; opacity: .75; padding: 4px 0;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(28px, 7.5vw, 44px); font-weight: 600; letter-spacing: -0.01em;
+  text-align: center; opacity: .85; padding: 12px 0 6px;
+  line-height: 1;
 }
-.step-clock.reached { opacity: 1; font-weight: 700; }
+.step-clock.reached { opacity: 1; color: inherit; }
+.meta-row { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 4px 0; }
+.meta-item {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 0; border-bottom: 1px solid currentColor; border-color: rgba(255,255,255,0.18);
+}
+.meta-label { font-size: 10px; letter-spacing: .26em; text-transform: uppercase; opacity: .6; font-weight: 600; }
+.meta-value { font-size: 16px; font-weight: 500; letter-spacing: -0.005em; }
 
 /* ---------- Modal ---------- */
 .modal-overlay {
