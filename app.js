@@ -743,16 +743,18 @@ async function screenHome() {
 
     const menu = el('div',{class:'menu'},[
       menuItem('Scale', scaleLabel, dayBowing(dow)),
-      menuItem('Pedal tone', pedalNote, 'drone underneath'),
+      menuItem('Pedal tone', pedalNote, ''),
       menuItem('Mode', modeLabel, ''),
       menuItem('Improvisation', improvLabel + longNote, ''),
     ]);
     const body = el('div',{class:'body home-body'}, [menu]);
     root.appendChild(body);
 
-    const lightOn = (localStorage.getItem('lightToggle')==='1');
+    // Light day defaults to OFF every visit — session-only.
+    if (window.__lightToggle === undefined) window.__lightToggle = false;
+    const lightOn = !!window.__lightToggle;
     const lightRow = el('label',{class:'row light-toggle'},[
-      (() => { const cb = el('input',{type:'checkbox'}); cb.checked = lightOn; cb.addEventListener('change', e=>{ localStorage.setItem('lightToggle', e.target.checked?'1':'0'); logEvent('light_toggle', e.target.checked); }); return cb; })(),
+      (() => { const cb = el('input',{type:'checkbox'}); cb.checked = lightOn; cb.addEventListener('change', e=>{ window.__lightToggle = e.target.checked; logEvent('light_toggle', e.target.checked); }); return cb; })(),
       el('span',{}, 'Light day — halves each block')
     ]);
     body.appendChild(lightRow);
@@ -805,7 +807,7 @@ async function pendingImprovAnnotation() {
 // ---------- Session flow ----------
 async function startSession() {
   await AUDIO.resume();
-  const light = (localStorage.getItem('lightToggle')==='1');
+  const light = !!window.__lightToggle;
   SESSION = newSession(light);
   startActiveClock();
   await idbSet('sessions', null, SESSION);
