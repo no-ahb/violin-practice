@@ -234,6 +234,38 @@ ul.bare { list-style: none; }
 .meta-label { font-size: 10px; letter-spacing: .26em; text-transform: uppercase; opacity: .6; font-weight: 600; }
 .meta-value { font-size: 16px; font-weight: 500; letter-spacing: -0.005em; }
 
+/* ---------- Chord-scale ---------- */
+.cs-intro {
+  border: 1px solid currentColor; border-color: rgba(255,255,255,0.22);
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+}
+.cs-intro-body { font-size: 15px; line-height: 1.45; opacity: .9; }
+.cs-controls { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 8px; }
+.cs-tempo-row { display: flex; gap: 10px; align-items: stretch; }
+.cs-tempo { flex: 1; }
+.cs-bpc { display: flex; flex-direction: column; gap: 8px; }
+.cs-now {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px;
+  border: 1.5px solid currentColor; border-color: rgba(255,255,255,0.28);
+}
+.cs-chord {
+  font-size: clamp(40px, 11vw, 64px); font-weight: 700; letter-spacing: -0.03em;
+  line-height: 1;
+}
+.cs-scale {
+  font-size: 14px; letter-spacing: .12em; text-transform: uppercase;
+  font-weight: 600; opacity: .75;
+}
+.cs-chart-wrap { display: flex; flex-direction: column; gap: 8px; }
+.chord-chart.pretty { gap: 8px; }
+.chord-chart.pretty .chord {
+  border-width: 1.5px; padding: 10px 12px; font-size: 16px; opacity: .35;
+  letter-spacing: -0.005em; transition: opacity 160ms ease, background 160ms ease;
+}
+.chord-chart.pretty .chord.next { opacity: .65; }
+.chord-chart.pretty .chord.active { opacity: 1; }
+
 /* ---------- Modal ---------- */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 50;

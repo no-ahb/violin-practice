@@ -1368,84 +1368,148 @@ function screenScalesModal() {
 
 // ---------- Scales — Chord-scale ----------
 function screenScalesChordScale() {
+  CURRENT_SCREEN = 'scales_chordscale';
   render(async (root) => {
     const info = weekInfo();
     const rawDow = todayDow();
     const dow = (rawDow<1 || rawDow>5) ? 5 : rawDow;
     const prog = dayChordProgression(dow, info.minor, info.rootPc);
     const progKey = 'progBars_' + prog.label;
-    const barsPerChord = SETTINGS[progKey] || 8;
-    let currentBar = 0;
-    let totalSec = (SESSION.light?90:180);
-    let remainingSec = totalSec;
+    let barsPerChord = SETTINGS[progKey] || 4;
+    let loopTempo = SETTINGS.chordLoopTempo || 72;
+    let chordIdx = 0;
+    let elapsedSec = 0;
     let mainTimer = null;
     let chordTimer = null;
-    let loopTempo = 72;
-    let schedAhead = 0;
-    const modal = prog.bars.length === 1;
+    let running = false, paused = false, finished = false;
+    const isModal = prog.bars.length === 1;
+    logEvent('chordscale_open', { prog: prog.label, modal: isModal });
 
     root.appendChild(el('div',{class:'band-top'},[
       el('div',{},[
-        el('div',{class:'eyebrow'},'Scales · Chord-scale'),
+        el('div',{class:'eyebrow'}, 'Chord-scale'),
         el('h1',{}, prog.label),
       ]),
-      el('div',{class:'timer',id:'timer'}, fmtSec(remainingSec)),
+      el('div',{class:'step-counter', id:'csClock'}, '0:00'),
     ]));
+
     const body = el('div',{class:'body stack'}); root.appendChild(body);
-    body.appendChild(el('div',{class:'row wrap'},[
-      el('span',{class:'pill',id:'bpmPill'}, `${loopTempo} bpm`),
-      ...[8,4,2,1].map(n => {
-        const b = el('button',{class:'chip', onclick:()=>{ SETTINGS[progKey]=n; kvSet('settings',SETTINGS); toast(`${n} bars/chord`); $('#bpb'+n).classList.add('active'); }}, `${n} bar`);
-        b.id = 'bpb'+n;
-        if (n===barsPerChord) b.style.background = 'currentColor';
-        return b;
-      })
-    ]));
-    const chart = el('div',{class:'chord-chart', id:'chart'});
-    prog.bars.forEach((bar,i) => {
-      chart.appendChild(el('div',{class:'chord' + (i===0?' active':''), 'data-i':i}, bar.chord));
-    });
-    body.appendChild(chart);
-    const scaleLabel = el('h2',{id:'scaleLbl'}, '');
-    const scaleNotes = el('p',{id:'scaleNotes',class:'dim'}, '');
-    body.appendChild(scaleLabel); body.appendChild(scaleNotes);
-    const notation = el('div',{class:'notation',id:'notation'}); body.appendChild(notation);
-    const phase = el('p',{id:'phase',class:'dim'}, 'Press start.');
-    body.appendChild(phase);
-    root.appendChild(el('div',{class:'band-bottom'},[
-      el('button',{class:'big primary', onclick: go}, [el('span',{class:'inner'}, 'Start')]),
-      el('button',{class:'chip', onclick: openDrawer}, 'Audio'),
-      el('button',{class:'chip', onclick: toggleRecord}, 'Record'),
-      el('button',{class:'chip', onclick: endNow}, 'Done'),
-    ]));
-    function refreshChord(){
-      const i = currentBar % prog.bars.length;
-      $$('.chord', chart).forEach((n, idx) => {
-        n.classList.remove('active','next');
-        if (idx === i) n.classList.add('active');
-        if (idx === (i+1) % prog.bars.length) n.classList.add('next');
+
+    // Intro / explainer — only before start
+    const intro = el('div',{class:'cs-intro', id:'csIntro'}, [
+      el('div',{class:'menu-eyebrow'}, 'How this works'),
+      el('div',{class:'cs-intro-body'},
+        isModal
+          ? `One chord, one scale. Tap Start — the chord loops in the background. Improvise on the scale shown below; land on chord tones, lean into the characteristic note.`
+          : `The progression below loops at the chosen tempo. Each chord shows the matching scale and notes. Tap Start, listen for a bar, then play the scale on each chord — clean changes through the bar lines.`
+      ),
+    ]);
+    body.appendChild(intro);
+
+    // Audio + tempo controls (chord-loop tempo, separate from session metronome)
+    const ctrl = el('div',{class:'cs-controls'});
+    const tempoBlock = el('div',{class:'tempo-stack cs-tempo'},[
+      el('div',{class:'tempo-display', id:'csTempo'}, String(loopTempo)),
+      el('div',{class:'tempo-label'}, 'BPM · loop'),
+    ]);
+    const tMinus = el('button',{class:'tempo-btn'}, '−');
+    const tPlus  = el('button',{class:'tempo-btn'}, '+');
+    tMinus.addEventListener('click', ()=>{ loopTempo = Math.max(40, loopTempo-2); SETTINGS.chordLoopTempo = loopTempo; kvSet('settings', SETTINGS); $('#csTempo').textContent = loopTempo; });
+    tPlus .addEventListener('click', ()=>{ loopTempo = Math.min(180, loopTempo+2); SETTINGS.chordLoopTempo = loopTempo; kvSet('settings', SETTINGS); $('#csTempo').textContent = loopTempo; });
+    ctrl.appendChild(el('div',{class:'cs-tempo-row'},[tMinus, tempoBlock, tPlus]));
+
+    // Bars per chord
+    const bpcRow = el('div',{class:'cs-bpc'},[
+      el('div',{class:'menu-eyebrow'}, 'Bars per chord'),
+      el('div',{class:'row wrap', id:'bpcRow'},
+        [1,2,4,8].map(n => {
+          const b = el('button',{class:'chip ' + (n===barsPerChord?'primary':'')}, [el('span',{class:'inner'}, String(n))]);
+          b.addEventListener('click', () => {
+            barsPerChord = n; SETTINGS[progKey] = n; kvSet('settings', SETTINGS);
+            Array.from($('#bpcRow').children).forEach(c=>c.classList.remove('primary'));
+            b.classList.add('primary');
+            logEvent('chordscale_bpc', n);
+          });
+          return b;
+        })
+      ),
+    ]);
+    ctrl.appendChild(bpcRow);
+    body.appendChild(ctrl);
+
+    // Now playing card — big
+    const np = el('div',{class:'cs-now'}, [
+      el('div',{class:'menu-eyebrow'}, 'Now playing'),
+      el('div',{class:'cs-chord', id:'csChord'}, prog.bars[0].chord),
+      el('div',{class:'cs-scale', id:'csScale'}, ''),
+      el('div',{class:'note-line', id:'csNotes'}, ''),
+    ]);
+    body.appendChild(np);
+
+    // Progression chart
+    if (!isModal) {
+      const chart = el('div',{class:'chord-chart pretty', id:'csChart'});
+      prog.bars.forEach((bar,i) => {
+        chart.appendChild(el('div',{class:'chord' + (i===0?' active':''), 'data-i':i}, bar.chord));
       });
-      const bar = prog.bars[i];
-      scaleLabel.textContent = bar.scale.name + ' — ' + bar.scale.notes.join(' ');
-      scaleNotes.textContent = `Chord tones: ${bar.tones.length}  ·  ${bar.chord}`;
-      const notes = scaleNotesFromRoot(bar.scale.rootPc, SCALE[bar.scale.type], 1, 4);
-      renderNotation(notation, notes);
+      body.appendChild(el('div',{class:'cs-chart-wrap'},[
+        el('div',{class:'menu-eyebrow'}, 'Progression'),
+        chart,
+      ]));
     }
-    async function go() {
+
+    // Bottom controls
+    const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'csStartLbl'}, 'Start')]);
+    const doneBtn  = el('button',{class:'chip'}, 'Done');
+    const recBtn   = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
+    startBtn.addEventListener('click', () => {
+      if (finished) return;
+      if (!running) begin();
+      else togglePause();
+    });
+    doneBtn.addEventListener('click', async () => {
+      if (finished) return;
+      const ok = await askConfirm('Done with chord-scale?', 'Stop the loop and continue to the next block.', {okLabel:'Done', cancelLabel:'Keep going'});
+      if (ok) finish();
+    });
+    root.appendChild(el('div',{class:'band-bottom'},[startBtn, doneBtn, recBtn]));
+
+    function refreshChord(){
+      const i = chordIdx % prog.bars.length;
+      const bar = prog.bars[i];
+      $('#csChord').textContent = bar.chord;
+      $('#csScale').textContent = bar.scale.name;
+      $('#csNotes').textContent = bar.scale.notes.join('  ');
+      const chartEl = $('#csChart');
+      if (chartEl) {
+        Array.from(chartEl.children).forEach((n, idx) => {
+          n.classList.remove('active','next');
+          if (idx === i) n.classList.add('active');
+          if (idx === (i+1) % prog.bars.length) n.classList.add('next');
+        });
+      }
+    }
+    refreshChord();
+
+    async function begin(){
+      running = true; paused = false;
       await AUDIO.resume();
       AUDIO.fadeDrone(200);
-      // chord loop
+      $('#csStartLbl').textContent = 'Pause';
+      const introEl = $('#csIntro'); if (introEl) introEl.style.display = 'none';
+      logEvent('chordscale_begin', { tempo: loopTempo, bpc: barsPerChord });
+
       const secPerBar = 60/loopTempo * 4;
       let nextBarAt = AUDIO.ctx.currentTime + 0.25;
       let bar = 0;
       function sched() {
-        if (remainingSec <= 0) { finish(); return; }
+        if (!running || paused || finished) return;
         while (nextBarAt < AUDIO.ctx.currentTime + 0.6) {
           const ci = Math.floor(bar / barsPerChord) % prog.bars.length;
           if (bar % barsPerChord === 0) {
             const chord = prog.bars[ci];
-            AUDIO.playChord(chord.root, chord.tones, nextBarAt, secPerBar * barsPerChord * 0.95, modal);
-            currentBar = ci;
+            AUDIO.playChord(chord.root, chord.tones, nextBarAt, secPerBar * barsPerChord * 0.95, isModal);
+            chordIdx = ci;
             requestAnimationFrame(refreshChord);
           }
           nextBarAt += secPerBar;
@@ -1454,23 +1518,27 @@ function screenScalesChordScale() {
         chordTimer = setTimeout(sched, 80);
       }
       sched();
-      refreshChord();
       mainTimer = setInterval(() => {
-        remainingSec -= 1;
-        $('#timer').textContent = fmtSec(remainingSec);
-        if (remainingSec === (totalSec-30)) phase.textContent = 'Play clean switches.';
-        else if (remainingSec <= 30) phase.textContent = 'Phrase.';
-        else if (remainingSec > totalSec - 30) phase.textContent = 'Listen. Don\'t play.';
+        if (paused || finished) return;
+        elapsedSec += 1;
+        $('#csClock').textContent = fmtSec(elapsedSec);
       }, 1000);
     }
+    function togglePause(){
+      paused = !paused;
+      $('#csStartLbl').textContent = paused ? 'Resume' : 'Pause';
+      logEvent('chordscale_pause', paused);
+    }
     function finish(){
+      if (finished) return;
+      finished = true;
       clearInterval(mainTimer); clearTimeout(chordTimer);
       AUDIO.fadeDrone(200);
-      SESSION.blocks.scales.chordscale = {done:true, progression: prog.label};
+      SESSION.blocks.scales.chordscale = {done:true, progression: prog.label, secs: elapsedSec};
       persistSession();
+      logEvent('chordscale_complete', { secs: elapsedSec });
       transition('Adagio', screenAdagio);
     }
-    function endNow(){ remainingSec = 0; finish(); }
   });
 }
 
