@@ -82,7 +82,7 @@ function droneDegree(dow, minor) {
   }
 }
 function dayBowing(dow) {
-  return ['rest','sustained','detaché','slurred 4','slurred 8','free/choice','rest'][dow] || 'sustained';
+  return ['free/choice','sustained','detaché','slurred 4','slurred 8','free/choice','free/choice'][dow] || 'sustained';
 }
 function dayModalFocus(dow, minor) {
   // Week 1 (minor): Mon G dorian, Tue C dorian, Wed G phrygian, Thu D phrygian, Fri G locrian
@@ -190,6 +190,26 @@ function idbAll(store){ return tx(store).then(s=>new Promise((r,e)=>{ const q=s.
 function idbDel(store, key){ return tx(store,'readwrite').then(s=>new Promise((r,e)=>{ const q=s.delete(key); q.onsuccess=()=>r(); q.onerror=()=>e(q.error); })); }
 function kvGet(k){ return idbGet('kv', k); }
 function kvSet(k,v){ return idbSet('kv', k, v); }
+
+// ---------- Action log ----------
+const LOG_BUFFER = [];
+let LOG_FLUSH_T = null;
+function logEvent(action, data) {
+  const entry = { t: Date.now(), iso: new Date().toISOString(), screen: CURRENT_SCREEN, action, data: data ?? null };
+  LOG_BUFFER.push(entry);
+  try { console.log('[log]', action, data ?? ''); } catch(e){}
+  clearTimeout(LOG_FLUSH_T);
+  LOG_FLUSH_T = setTimeout(flushLogs, 800);
+}
+async function flushLogs() {
+  if (!LOG_BUFFER.length) return;
+  const existing = (await kvGet('logs')) || [];
+  const merged = existing.concat(LOG_BUFFER.splice(0));
+  // cap
+  const trimmed = merged.slice(-2000);
+  await kvSet('logs', trimmed);
+}
+let CURRENT_SCREEN = 'boot';
 
 // ---------- Settings & state ----------
 const defaultSettings = {
@@ -495,6 +515,34 @@ function el(tag, attrs={}, children=[]) {
   });
   return e;
 }
+// ---------- Modal (replaces window.confirm / prompt / alert) ----------
+function modal({ title, message, content, buttons, dismissible=false }) {
+  return new Promise(resolve => {
+    const overlay = el('div',{class:'modal-overlay'});
+    const card = el('div',{class:'modal-card'});
+    if (title) card.appendChild(el('div',{class:'modal-title'}, title));
+    if (message) card.appendChild(el('div',{class:'modal-message'}, message));
+    if (content) card.appendChild(content);
+    const row = el('div',{class:'modal-btns'});
+    function close(v){ if (overlay.parentNode) overlay.parentNode.removeChild(overlay); resolve(v); }
+    (buttons||[{label:'OK', value:true, primary:true}]).forEach(b => {
+      const btn = el('button',{class:'modal-btn '+(b.primary?'primary':b.danger?'danger':'')}, [el('span',{class:'inner'}, b.label)]);
+      btn.addEventListener('click', () => { if (b.onclick){ const r = b.onclick(); if (r === false) return; } close(b.value); });
+      row.appendChild(btn);
+    });
+    card.appendChild(row);
+    overlay.appendChild(card);
+    if (dismissible) overlay.addEventListener('click', e => { if (e.target===overlay) close(undefined); });
+    document.body.appendChild(overlay);
+  });
+}
+function askConfirm(title, message, { okLabel='Yes', cancelLabel='No', danger=false } = {}) {
+  return modal({ title, message, buttons: [
+    { label: cancelLabel, value: false },
+    { label: okLabel, value: true, primary: !danger, danger },
+  ]});
+}
+
 function toast(msg, ms=1600){
   const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
   clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.add('hidden'), ms);
@@ -631,6 +679,18 @@ function newSession(light=false) {
   };
 }
 function keyTempoName(tonic, minor){ return tonic + (minor?'m':'M'); }
+function scaleTempoFor(tonic, minor){
+  // start at 60, +5 each time this key recurs (per completed scale block)
+  const k = keyTempoName(tonic, minor);
+  const n = (SETTINGS.scaleRecurrence && SETTINGS.scaleRecurrence[k]) || 0;
+  return 60 + 5*n;
+}
+function bumpScaleRecurrence(tonic, minor){
+  const k = keyTempoName(tonic, minor);
+  SETTINGS.scaleRecurrence = SETTINGS.scaleRecurrence || {};
+  SETTINGS.scaleRecurrence[k] = (SETTINGS.scaleRecurrence[k]||0) + 1;
+  kvSet('settings', SETTINGS);
+}
 function activeTimeNow() {
   if (!SESSION) return 0;
   let ms = SESSION.activeMs;
@@ -650,46 +710,71 @@ function fmtSec(s){ s=Math.max(0,Math.floor(s)); const m=Math.floor(s/60); retur
 
 // ---------- Screens ----------
 async function screenHome() {
+  CURRENT_SCREEN = 'home';
   render(async (root) => {
     const sessions = await idbAll('sessions');
-    const { cur, best } = computeStreak(sessions);
+    const { cur } = computeStreak(sessions);
     const info = weekInfo();
     const dow = todayDow();
-    const dayName = DAYS[dow];
+    const today = new Date();
+    const dayFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dow];
+    const monthName = today.toLocaleString('en-US',{month:'long'});
+    const dateLine = `${monthName} ${today.getDate()}, ${today.getFullYear()}`;
     const pendingImprov = await pendingImprovAnnotation();
-    root.appendChild(el('div',{class:'band-top'},[
-      el('div',{},[
-        el('div',{class:'eyebrow'}, `Week ${info.weekNum} · ${info.tonicLabel} ${info.minor?'minor':'major'} · ${dayName}`),
-        el('h1',{}, 'Today'),
-      ]),
-      el('div',{class:'timer sm'}, `🔥 ${cur}w`),
-    ]));
-    const body = el('div',{class:'body stack lg'});
-    root.appendChild(body);
+
+    // Hero block — book title page
+    const hero = el('div',{class:'home-hero'},[
+      el('div',{class:'hero-week'}, `Week ${info.weekNum}`),
+      el('h1',{class:'hero-day'}, dayFull),
+      el('div',{class:'hero-date'}, dateLine),
+      el('div',{class:'hero-rule'}),
+    ]);
+    root.appendChild(hero);
+
     if (pendingImprov) {
-      body.appendChild(el('div',{class:'banner', onclick: ()=>screenRecordings()}, 'Yesterday\'s improv needs 2 notes — tap to annotate'));
+      root.appendChild(el('div',{class:'banner', onclick: ()=>screenRecordings()}, 'Yesterday\'s improv needs 2 notes — tap to annotate'));
     }
-    body.appendChild(el('div',{class:'stack'},[
-      el('h2',{}, 'Drone: ' + droneNoteForToday(info, dow)),
-      el('p',{class:'dim'}, `Scale form: ${scaleFormLabel(dow, info.minor)}.  Bowing: ${dayBowing(dow)}.`),
-      el('p',{class:'dim'}, `Modal focus: ${modalFocusLabel(info, dow)}.`),
-      el('p',{class:'dim'}, `Chord-scale: ${dayChordProgression(dow, info.minor, info.rootPc).label}.`),
-    ]));
+
+    const scaleLabel = `${info.rootName} ${scaleFormName(dow, info.minor)}`;
+    const pedalNote = droneNoteForToday(info, dow);
+    const modeLabel = modalFocusLabel(info, dow);
+    const improvLabel = isSystemDay(dow) ? 'System patch' : 'Acoustic';
+    const longNote = isSundayLong(dow) ? ' · Long session' : '';
+
+    const menu = el('div',{class:'menu'},[
+      menuItem('Scale', scaleLabel, dayBowing(dow)),
+      menuItem('Pedal tone', pedalNote, 'drone underneath'),
+      menuItem('Mode', modeLabel, ''),
+      menuItem('Improvisation', improvLabel + longNote, ''),
+    ]);
+    const body = el('div',{class:'body home-body'}, [menu]);
+    root.appendChild(body);
+
     const lightOn = (localStorage.getItem('lightToggle')==='1');
-    body.appendChild(el('label',{class:'row',style:'gap:8px;'},[
-      (() => { const cb = el('input',{type:'checkbox'}); cb.checked = lightOn; cb.addEventListener('change', e=>{ localStorage.setItem('lightToggle', e.target.checked?'1':'0'); }); return cb; })(),
+    const lightRow = el('label',{class:'row light-toggle'},[
+      (() => { const cb = el('input',{type:'checkbox'}); cb.checked = lightOn; cb.addEventListener('change', e=>{ localStorage.setItem('lightToggle', e.target.checked?'1':'0'); logEvent('light_toggle', e.target.checked); }); return cb; })(),
       el('span',{}, 'Light day — halves each block')
-    ]));
+    ]);
+    body.appendChild(lightRow);
 
     root.appendChild(el('div',{class:'band-bottom'},[
-      el('button',{class:'big primary', onclick: startSession}, [el('span',{class:'inner'}, 'Start today\'s session')]),
+      el('button',{class:'big primary', onclick: startSession}, [el('span',{class:'inner'}, 'Begin session')]),
     ]));
-    root.appendChild(el('div',{class:'row',style:'gap:8px;margin-top:6px;justify-content:space-between;'},[
-      el('button',{class:'ghost', onclick: screenSettings}, '⚙︎ Settings'),
-      el('button',{class:'ghost', onclick: screenRecordings}, '⦿ Recordings'),
-      el('button',{class:'ghost', onclick: screenStats}, '⌗ History'),
+    root.appendChild(el('div',{class:'row home-foot'},[
+      el('span',{class:'streak-mark'}, `${cur} wk streak`),
+      el('span',{class:'sep'}, '·'),
+      el('button',{class:'ghost', onclick: screenSettings}, 'Settings'),
+      el('button',{class:'ghost', onclick: screenRecordings}, 'Recordings'),
+      el('button',{class:'ghost', onclick: screenStats}, 'History'),
     ]));
   });
+}
+function menuItem(eyebrow, primary, hint){
+  return el('div',{class:'menu-item'},[
+    el('div',{class:'menu-eyebrow'}, eyebrow),
+    el('div',{class:'menu-primary'}, primary),
+    hint ? el('div',{class:'menu-hint'}, hint) : null,
+  ].filter(Boolean));
 }
 function droneNoteForToday(info, dow) {
   const offset = droneDegree(dow, info.minor);
@@ -814,7 +899,8 @@ function scalesTechnicalSteps(info, dow, light) {
   const dom7Arp = (()=>{
     const ints = [0,4,7,10,12];
     const out = [];
-    for (let o=0;o<2;o++) ints.forEach(iv => out.push({pc:(dom7Root+iv)%12, octave:3+o+Math.floor((dom7Root+iv)/12), name:NOTE_NAMES[(dom7Root+iv)%12]}));
+    for (let o=0;o<3;o++) ints.forEach(iv => out.push({pc:(dom7Root+iv)%12, octave:3+o+Math.floor((dom7Root+iv)/12), name:NOTE_NAMES[(dom7Root+iv)%12]}));
+    for (let o=2;o>=0;o--) ints.slice().reverse().forEach(iv => out.push({pc:(dom7Root+iv)%12, octave:3+o+Math.floor((dom7Root+iv)/12), name:NOTE_NAMES[(dom7Root+iv)%12]}));
     return out;
   })();
   const extraArpIsSubdominant = (info.weekNum % 2 === 1); // alternate
@@ -824,17 +910,35 @@ function scalesTechnicalSteps(info, dow, light) {
     : [0,3,6,9,12];
   const extraArp = (()=>{
     const out = [];
-    for (let o=0;o<2;o++) extraInts.forEach(iv => out.push({pc:(extraRoot+iv)%12, octave:3+o+Math.floor((extraRoot+iv)/12), name:NOTE_NAMES[(extraRoot+iv)%12]}));
+    for (let o=0;o<3;o++) extraInts.forEach(iv => out.push({pc:(extraRoot+iv)%12, octave:3+o+Math.floor((extraRoot+iv)/12), name:NOTE_NAMES[(extraRoot+iv)%12]}));
+    for (let o=2;o>=0;o--) extraInts.slice().reverse().forEach(iv => out.push({pc:(extraRoot+iv)%12, octave:3+o+Math.floor((extraRoot+iv)/12), name:NOTE_NAMES[(extraRoot+iv)%12]}));
     return out;
   })();
   const mul = light ? 0.5 : 1;
+  // Suggested durations are guides only — the user advances manually.
   return [
-    { title: `Scale · 3 oct`, sub: `${info.rootName} ${scaleFormName(dow, info.minor)}`, notes: scale3oct, durMs: Math.round(75000*mul) },
-    { title: `Broken thirds · 2 oct`, sub: `1-3, 2-4, ...`, notes: thirds, durMs: Math.round(75000*mul) },
-    { title: `Tonic arpeggio · 3 oct`, sub: `${info.rootName} ${info.minor?'minor':'major'}`, notes: tonicArp, durMs: Math.round(45000*mul) },
-    { title: `Dominant 7 arp · 2 oct`, sub: `${NOTE_NAMES[dom7Root]}7`, notes: dom7Arp, durMs: Math.round(45000*mul) },
-    { title: extraArpIsSubdominant ? `Subdominant arp · 2 oct` : `Dim 7 on leading tone · 2 oct`, sub: `${NOTE_NAMES[extraRoot]}`, notes: extraArp, durMs: Math.round(45000*mul) },
+    { title: `Scale`, kind:'3 oct', sub: `${info.rootName} ${scaleFormName(dow, info.minor)}`, notes: scale3oct, suggestSec: Math.round(120*mul) },
+    { title: `Broken thirds`, kind:'2 oct', sub: `1-3, 2-4, …`, notes: thirds, suggestSec: Math.round(120*mul) },
+    { title: `Tonic arpeggio`, kind:'3 oct', sub: `${info.rootName} ${info.minor?'minor':'major'}`, notes: tonicArp, suggestSec: Math.round(75*mul) },
+    { title: `Dominant 7 arpeggio`, kind:'3 oct', sub: `${NOTE_NAMES[dom7Root]}7`, notes: dom7Arp, suggestSec: Math.round(75*mul) },
+    { title: extraArpIsSubdominant ? `Subdominant arpeggio` : `Dim 7 on leading tone`, kind:'3 oct', sub: `${NOTE_NAMES[extraRoot]}`, notes: extraArp, suggestSec: Math.round(75*mul) },
   ];
+}
+function notesAsLine(notes){
+  // Show unique-in-sequence ascending names: walks the array, adds note when name differs from previous,
+  // stops when we return to a prior name (i.e. start of descent or repeated cycle).
+  const seen = new Set();
+  const out = [];
+  for (const n of notes) {
+    if (out.length && n.name === out[out.length-1]) continue;
+    if (seen.has(n.name) && out.length) {
+      // close on the tonic if it matches first note
+      if (n.name === out[0]) { out.push(n.name); break; }
+      else break;
+    }
+    out.push(n.name); seen.add(n.name);
+  }
+  return out.join('  ');
 }
 function scaleFormName(dow, minor){
   if (!minor) return 'major';
@@ -845,74 +949,177 @@ function scaleFormName(dow, minor){
 }
 
 function screenScalesTechnical() {
+  CURRENT_SCREEN = 'scales_technical';
   render(async (root) => {
     const info = weekInfo();
     const dow = todayDow();
     const steps = scalesTechnicalSteps(info, dow, SESSION.light);
-    let runner = null;
-    let currentStep = -1;
-    let currentMs = 0;
+    // tempo: start at 60, +5 each recurrence of this key
+    SESSION.tempo = scaleTempoFor(info.rootName, info.minor);
+    AUDIO.setBpm(SESSION.tempo);
+    const dronePc = (info.rootPc + droneDegree(dow, info.minor))%12;
+    let stepIdx = -1;
+    let stepStart = 0;
+    const stepTimes = []; // ms per step
+    let stepTickT = null;
+    let started = false;
+    logEvent('scales_technical_open', { tonic: info.rootName, minor: info.minor, tempo: SESSION.tempo });
+
     const topEl = el('div',{class:'band-top'},[
       el('div',{},[
-        el('div',{class:'eyebrow'},'Scales · Technical · —/'+steps.length),
+        el('div',{class:'eyebrow'},'Scales · Technical'),
         el('h1',{}, `${info.rootName} ${info.minor?'minor':'major'}`),
       ]),
-      el('div',{class:'timer', id:'timer'}, '—'),
+      el('div',{class:'step-counter', id:'stepCounter'}, `– / ${steps.length}`),
     ]);
     root.appendChild(topEl);
+
     const body = el('div',{class:'body stack'}); root.appendChild(body);
-    const dronePc = (info.rootPc + droneDegree(dow, info.minor))%12;
-    body.appendChild(el('div',{class:'kv'},[
-      el('span',{}, `Drone: ${NOTE_NAMES[dronePc]}`),
-      el('span',{}, `Bowing: ${dayBowing(dow)}`),
-      el('span',{id:'bpmLabel'}, `${SESSION.tempo} bpm`),
-    ]));
-    const stepTitle = el('h2',{id:'stepTitle'}, 'Ready');
-    const stepSub = el('p',{id:'stepSub',class:'dim'}, 'Press start to begin.');
+
+    // Audio control panel — big, prominent
+    body.appendChild(buildAudioPanel({ dronePc, droneLabel: NOTE_NAMES[dronePc], onTempoChange: bpm => { SESSION.tempo = bpm; logEvent('tempo_change', bpm); } }));
+
+    body.appendChild(el('div',{class:'bowing-line'}, `Bowing — ${dayBowing(dow)}`));
+
+    const stepTitle = el('h2',{id:'stepTitle', class:'step-title'}, 'Ready when you are');
+    const stepSub = el('p',{id:'stepSub',class:'dim step-sub'}, 'Tap Start to begin the first scale.');
     body.appendChild(stepTitle); body.appendChild(stepSub);
-    const notation = el('div',{class:'notation', id:'notation'}); body.appendChild(notation);
+    const noteLine = el('div',{class:'note-line', id:'noteLine'}, '');
+    body.appendChild(noteLine);
+    const stepClock = el('div',{class:'step-clock', id:'stepClock'}, '');
+    body.appendChild(stepClock);
+
     const bottom = el('div',{class:'band-bottom'});
     root.appendChild(bottom);
-    const startBtn = el('button',{class:'big primary', onclick: go}, [el('span',{class:'inner'}, 'Start')]);
-    const holdBtn  = el('button',{class:'chip', onclick: ()=>{ runner && runner.extend(30000); toast('+30s'); }}, 'Hold +30s');
-    const bpmMinus = el('button',{class:'chip', onclick: ()=>{ SESSION.tempo = Math.max(30,SESSION.tempo-2); AUDIO.setBpm(SESSION.tempo); $('#bpmLabel').textContent = SESSION.tempo+' bpm'; }}, '–');
-    const bpmPlus  = el('button',{class:'chip', onclick: ()=>{ SESSION.tempo = Math.min(200,SESSION.tempo+2); AUDIO.setBpm(SESSION.tempo); $('#bpmLabel').textContent = SESSION.tempo+' bpm'; }}, '+');
-    const bumpBtn  = el('button',{class:'chip', onclick: ()=>{ SESSION.tempo = Math.min(200,SESSION.tempo+6); AUDIO.setBpm(SESSION.tempo); $('#bpmLabel').textContent = SESSION.tempo+' bpm'; toast('Bumped +6'); }}, 'Bump +6');
-    const drawerBtn = el('button',{class:'chip', onclick: openDrawer}, 'Audio');
+    const startBtn = el('button',{class:'big primary', onclick: ()=>{ if (!started) begin(); else nextStep(); }}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
     const recBtn   = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
-    bottom.appendChild(startBtn); bottom.appendChild(holdBtn);
-    bottom.appendChild(bpmMinus); bottom.appendChild(bpmPlus); bottom.appendChild(bumpBtn);
-    bottom.appendChild(drawerBtn); bottom.appendChild(recBtn);
+    bottom.appendChild(startBtn);
+    bottom.appendChild(recBtn);
 
-    async function go() {
-      startBtn.disabled = true; startBtn.textContent = 'Running…';
+    function fmtElapsed(ms){ return fmtSec(ms/1000); }
+    function tick(){
+      if (stepIdx<0) return;
+      const elapsed = Date.now() - stepStart;
+      const target = (steps[stepIdx].suggestSec||60)*1000;
+      const over = elapsed >= target;
+      stepClock.textContent = `${fmtElapsed(elapsed)}  ·  target ${fmtElapsed(target)}`;
+      stepClock.classList.toggle('reached', over);
+      stepTickT = setTimeout(tick, 250);
+    }
+    function showStep(i){
+      stepIdx = i; stepStart = Date.now();
+      const s = steps[i];
+      $('#stepCounter').textContent = `${i+1} / ${steps.length}`;
+      $('#stepTitle').textContent = `${s.title} · ${s.kind}`;
+      $('#stepSub').textContent = s.sub;
+      $('#noteLine').textContent = notesAsLine(s.notes);
+      $('#startInner').textContent = (i === steps.length-1) ? 'Finish' : 'Next';
+      logEvent('scale_step_start', { i, title: s.title });
+      clearTimeout(stepTickT); tick();
+    }
+    function nextStep(){
+      const ms = Date.now() - stepStart;
+      stepTimes[stepIdx] = ms;
+      logEvent('scale_step_done', { i: stepIdx, ms });
+      if (stepIdx >= steps.length-1) { return finish(); }
+      AUDIO.chime();
+      showStep(stepIdx+1);
+    }
+    async function begin(){
+      started = true;
       if (SETTINGS.drone_on) AUDIO.startDrone(dronePc);
       if (SETTINGS.metro_on) AUDIO.startMetronome(SESSION.tempo);
-      runner = stepRunner({
-        stepDurationsMs: steps.map(s=>s.durMs),
-        onStep: (i)=>{
-          currentStep = i;
-          const s = steps[i];
-          $('.eyebrow', root).textContent = `Scales · Technical · ${i+1}/${steps.length}`;
-          $('#stepTitle').textContent = s.title;
-          $('#stepSub').textContent = s.sub;
-          renderNotation($('#notation'), s.notes);
-        },
-        onTick: (i, rem)=>{ $('#timer').textContent = fmtSec(rem/1000); },
-        onComplete: async ()=>{
-          AUDIO.stopMetronome();
-          AUDIO.fadeDrone(500);
-          const tk = keyTempoName(info.rootName, info.minor);
-          SETTINGS.tempoPerKey[tk] = Math.max(SESSION.tempo, SETTINGS.tempoPerKey[tk]||0);
-          SETTINGS.cleanRunsAtTempo[tk+'@'+SESSION.tempo] = (SETTINGS.cleanRunsAtTempo[tk+'@'+SESSION.tempo]||0)+1;
-          await kvSet('settings', SETTINGS);
-          SESSION.blocks.scales.technical = { done:true, tempo: SESSION.tempo };
-          persistSession();
-          await transition('Scales · Modal', screenScalesModal);
-        }
-      });
+      logEvent('scales_technical_begin', { tempo: SESSION.tempo, drone: NOTE_NAMES[dronePc] });
+      showStep(0);
+    }
+    async function finish(){
+      clearTimeout(stepTickT);
+      AUDIO.stopMetronome();
+      AUDIO.fadeDrone(500);
+      bumpScaleRecurrence(info.rootName, info.minor);
+      const tk = keyTempoName(info.rootName, info.minor);
+      SETTINGS.tempoPerKey[tk] = Math.max(SESSION.tempo, SETTINGS.tempoPerKey[tk]||0);
+      await kvSet('settings', SETTINGS);
+      SESSION.blocks.scales.technical = { done:true, tempo: SESSION.tempo, stepTimesMs: stepTimes };
+      persistSession();
+      logEvent('scales_technical_complete', { stepTimes, tempo: SESSION.tempo });
+      await transition('Scales · Modal', screenScalesModal);
     }
   });
+}
+
+// Inline audio control panel — used in scales screens.
+function buildAudioPanel({ dronePc, droneLabel, onTempoChange }) {
+  const wrap = el('div',{class:'audio-panel'});
+
+  // Drone row
+  const droneRow = el('div',{class:'ap-row drone-row'});
+  const droneToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.drone_on?'on':'off')}, [
+    el('div',{class:'ap-label'}, 'Drone'),
+    el('div',{class:'ap-value', id:'apDroneVal'}, droneLabel || ''),
+    el('div',{class:'ap-state', id:'apDroneState'}, SETTINGS.drone_on ? 'ON' : 'OFF'),
+  ]);
+  droneToggle.addEventListener('click', () => {
+    SETTINGS.drone_on = !SETTINGS.drone_on; kvSet('settings', SETTINGS);
+    droneToggle.classList.toggle('on', SETTINGS.drone_on);
+    droneToggle.classList.toggle('off', !SETTINGS.drone_on);
+    $('#apDroneState').textContent = SETTINGS.drone_on?'ON':'OFF';
+    if (SETTINGS.drone_on && dronePc!=null) AUDIO.startDrone(dronePc); else AUDIO.fadeDrone(300);
+    logEvent('drone_toggle', SETTINGS.drone_on);
+  });
+  const droneVol = el('input',{type:'range',min:0,max:1,step:0.01, class:'ap-vol', 'aria-label':'Drone volume'});
+  droneVol.value = SETTINGS.volumes.drone;
+  droneVol.addEventListener('input', e => { AUDIO.setVolume('drone', parseFloat(e.target.value)); });
+  droneVol.addEventListener('change', e => logEvent('drone_volume', parseFloat(e.target.value)));
+  droneRow.appendChild(droneToggle);
+  droneRow.appendChild(el('div',{class:'ap-vol-wrap'},[el('div',{class:'ap-vol-label'},'Vol'), droneVol]));
+  wrap.appendChild(droneRow);
+
+  // Metronome row
+  const metroRow = el('div',{class:'ap-row metro-row'});
+  const metroToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.metro_on?'on':'off')}, [
+    el('div',{class:'ap-label'}, 'Metronome'),
+    el('div',{class:'ap-value', id:'apMetroVal'}, `${SESSION?SESSION.tempo:60} bpm`),
+    el('div',{class:'ap-state', id:'apMetroState'}, SETTINGS.metro_on ? 'ON' : 'OFF'),
+  ]);
+  metroToggle.addEventListener('click', () => {
+    SETTINGS.metro_on = !SETTINGS.metro_on; kvSet('settings', SETTINGS);
+    metroToggle.classList.toggle('on', SETTINGS.metro_on);
+    metroToggle.classList.toggle('off', !SETTINGS.metro_on);
+    $('#apMetroState').textContent = SETTINGS.metro_on?'ON':'OFF';
+    if (SETTINGS.metro_on && SESSION) AUDIO.startMetronome(SESSION.tempo); else AUDIO.stopMetronome();
+    logEvent('metro_toggle', SETTINGS.metro_on);
+  });
+  const metroVol = el('input',{type:'range',min:0,max:1,step:0.01,class:'ap-vol','aria-label':'Metronome volume'});
+  metroVol.value = SETTINGS.volumes.metro;
+  metroVol.addEventListener('input', e => AUDIO.setVolume('metro', parseFloat(e.target.value)));
+  metroVol.addEventListener('change', e => logEvent('metro_volume', parseFloat(e.target.value)));
+  metroRow.appendChild(metroToggle);
+  metroRow.appendChild(el('div',{class:'ap-vol-wrap'},[el('div',{class:'ap-vol-label'},'Vol'), metroVol]));
+  wrap.appendChild(metroRow);
+
+  // Tempo row
+  const tempoRow = el('div',{class:'ap-row tempo-row'});
+  const tempoMinus = el('button',{class:'tempo-btn'}, '−');
+  const tempoPlus  = el('button',{class:'tempo-btn'}, '+');
+  const tempoVal = el('div',{class:'tempo-display', id:'tempoDisplay'}, `${SESSION?SESSION.tempo:60}`);
+  const tempoLbl = el('div',{class:'tempo-label'}, 'BPM');
+  function changeTempo(delta){
+    if (!SESSION) return;
+    SESSION.tempo = Math.max(30, Math.min(220, SESSION.tempo + delta));
+    AUDIO.setBpm(SESSION.tempo);
+    $('#tempoDisplay').textContent = SESSION.tempo;
+    const mv = $('#apMetroVal'); if (mv) mv.textContent = `${SESSION.tempo} bpm`;
+    onTempoChange && onTempoChange(SESSION.tempo);
+  }
+  tempoMinus.addEventListener('click', ()=>changeTempo(-2));
+  tempoPlus.addEventListener('click', ()=>changeTempo(+2));
+  tempoRow.appendChild(tempoMinus);
+  tempoRow.appendChild(el('div',{class:'tempo-stack'},[tempoVal, tempoLbl]));
+  tempoRow.appendChild(tempoPlus);
+  wrap.appendChild(tempoRow);
+
+  return wrap;
 }
 
 function openDrawer() {
@@ -1015,8 +1222,8 @@ function modalStepsFor(info, dow, light) {
 function screenScalesModal() {
   render(async (root) => {
     const info = weekInfo();
-    const dow = todayDow();
-    if (dow<1 || dow>5) { return screenScalesChordScale(); } // skip on weekends
+    const rawDow = todayDow();
+    const dow = (rawDow<1 || rawDow>5) ? 5 : rawDow; // weekends use Friday's modal focus instead of skipping
     const data = modalStepsFor(info, dow, SESSION.light);
     let runner = null;
     root.appendChild(el('div',{class:'band-top'},[
@@ -1069,8 +1276,8 @@ function screenScalesModal() {
 function screenScalesChordScale() {
   render(async (root) => {
     const info = weekInfo();
-    const dow = todayDow();
-    if (dow<1 || dow>5) { SESSION.blocks.scales.chordscale = {done:true}; persistSession(); return transition('Adagio', screenAdagio); }
+    const rawDow = todayDow();
+    const dow = (rawDow<1 || rawDow>5) ? 5 : rawDow;
     const prog = dayChordProgression(dow, info.minor, info.rootPc);
     const progKey = 'progBars_' + prog.label;
     const barsPerChord = SETTINGS[progKey] || 8;
@@ -1198,6 +1405,7 @@ function advanceChunk(piece) {
 }
 
 function screenPieceBlock(pieceKey, piece, durSec, nextFn) {
+  CURRENT_SCREEN = pieceKey;
   durSec = SESSION.light ? durSec/2 : durSec;
   render(async (root) => {
     const chunkLabel = currentChunkLabel(piece);
@@ -1205,7 +1413,10 @@ function screenPieceBlock(pieceKey, piece, durSec, nextFn) {
     const droneRoot = piece.referenceDrone;
     let remaining = durSec;
     let runTimer = null;
+    let running = false;
+    let finished = false;
     let droneOn = false, metroOn = false;
+    logEvent(pieceKey+'_open', { chunk: chunkLabel, durSec });
 
     root.appendChild(el('div',{class:'band-top'},[
       el('div',{},[
@@ -1225,7 +1436,9 @@ function screenPieceBlock(pieceKey, piece, durSec, nextFn) {
       body.appendChild(list);
       body.appendChild(el('button',{class:'chip', onclick: async ()=>{
         const all = await chunkNotes(pieceKey, chunkLabel);
-        alert(all.map(n=>`${n.date} [${n.tag||'note'}]: ${n.text}`).join('\n\n') || 'No notes.');
+        const txt = all.map(n=>`${n.date} [${n.tag||'note'}]: ${n.text}`).join('\n\n') || 'No notes.';
+        const pre = el('pre',{style:'white-space:pre-wrap;font:inherit;font-size:14px;max-height:50vh;overflow:auto;'}, txt);
+        await modal({ title:'All notes', content: pre, buttons:[{label:'Close', value:true, primary:true}] });
       }}, 'Show all'));
     } else {
       body.appendChild(el('p',{class:'dim'}, 'No prior notes on this chunk.'));
@@ -1236,47 +1449,153 @@ function screenPieceBlock(pieceKey, piece, durSec, nextFn) {
           droneOn = !droneOn; b.textContent = `Drone ${droneRoot}: ${droneOn?'on':'off'}`;
           if (droneOn) AUDIO.startDrone(NOTE_TO_PC[droneRoot]||0);
           else AUDIO.fadeDrone(300);
+          logEvent('piece_drone_toggle', { pieceKey, on: droneOn });
         }); return b; })(),
       (() => { const b = el('button',{class:'chip'}, `Metronome: off`);
         b.addEventListener('click', ()=>{
           metroOn = !metroOn; b.textContent = `Metronome: ${metroOn?'on':'off'}`;
           if (metroOn) AUDIO.startMetronome(60); else AUDIO.stopMetronome();
+          logEvent('piece_metro_toggle', { pieceKey, on: metroOn });
         }); return b; })(),
-      el('button',{class:'chip', onclick: toggleRecord}, 'Record'),
       el('button',{class:'chip', onclick: openDrawer}, 'Audio'),
     ]));
-    root.appendChild(el('div',{class:'band-bottom'},[
-      el('button',{class:'big primary', onclick: go}, [el('span',{class:'inner'}, 'Start')]),
-      el('button',{class:'chip', onclick: ()=>{ remaining = 0; }}, 'End early'),
-    ]));
+    const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner'}, 'Start')]);
+    const endBtn = el('button',{class:'chip'}, 'End early');
+    startBtn.addEventListener('click', () => {
+      if (finished) return;
+      if (!running) { go(); }
+      else { pauseToggle(); }
+    });
+    endBtn.addEventListener('click', async () => {
+      if (finished) return;
+      const ok = await askConfirm('End early?', 'Stop the timer and move to today\'s wrap-up.', {okLabel:'End', cancelLabel:'Keep going'});
+      if (ok) { remaining = 0; tickOnce(); }
+    });
+    root.appendChild(el('div',{class:'band-bottom'},[startBtn, endBtn]));
+
+    let paused = false;
+    function pauseToggle(){
+      paused = !paused;
+      startBtn.querySelector('.inner').textContent = paused ? 'Resume' : 'Pause';
+      logEvent(pieceKey+'_pause_toggle', paused);
+    }
+    function tickOnce(){
+      if (finished) return;
+      if (paused) return;
+      remaining -= 1;
+      $('#timer').textContent = fmtSec(remaining);
+      if (remaining <= 0) { clearInterval(runTimer); runTimer = null; running = false; finish(); }
+    }
     async function go() {
-      runTimer = setInterval(async () => {
-        remaining -= 1;
-        $('#timer').textContent = fmtSec(remaining);
-        if (remaining <= 0) { clearInterval(runTimer); await finish(); }
-      }, 1000);
+      if (running || finished) return; // hard guard against double-start
+      running = true;
+      startBtn.querySelector('.inner').textContent = 'Pause';
+      logEvent(pieceKey+'_start', { remaining });
+      runTimer = setInterval(tickOnce, 1000);
     }
     async function finish() {
+      if (finished) return;
+      finished = true;
+      if (runTimer) { clearInterval(runTimer); runTimer = null; }
       AUDIO.fadeDrone(200); AUDIO.stopMetronome();
-      let note = '', tag = 'neutral', mastered = false, recorded = false;
-      // Ask for take
-      const wantRec = confirm('Record a 30s take of this chunk?');
-      if (wantRec) { await quickRecord(30, { block: pieceKey, chunk: chunkLabel, date: isoDate() }); recorded = true; }
-      // Notes prompt
-      while (!note) {
-        note = prompt('Notes on this chunk (required):') || '';
-        if (!note) toast('Need at least one note', 1200);
+      logEvent(pieceKey+'_timer_done', { chunk: chunkLabel });
+      // Hand off to a clean wrap-up screen — no popups.
+      screenPieceWrapUp(pieceKey, piece, chunkLabel, nextFn);
+    }
+  });
+}
+
+// ---------- Piece wrap-up (replaces popups) ----------
+function screenPieceWrapUp(pieceKey, piece, chunkLabel, nextFn){
+  CURRENT_SCREEN = pieceKey + '_wrapup';
+  let recorded = false;
+  let recording = false;
+  let recBlobMeta = null;
+  render(root => {
+    root.appendChild(el('div',{class:'band-top'},[
+      el('div',{},[
+        el('div',{class:'eyebrow'}, pieceKey.toUpperCase() + ' · WRAP-UP'),
+        el('h1',{}, `${piece.name} · ${chunkLabel}`),
+      ]),
+    ]));
+    const body = el('div',{class:'body stack'}); root.appendChild(body);
+
+    // Record today's work
+    body.appendChild(el('div',{class:'menu-eyebrow'}, 'Recording'));
+    const recBtn = el('button',{class:'big-toggle ap-toggle off',style:'min-height:84px;width:100%;'},[
+      el('div',{class:'ap-label'}, 'Record today\'s work'),
+      el('div',{class:'ap-value', id:'recVal'}, 'Tap to start · ~30s'),
+      el('div',{class:'ap-state', id:'recState'}, 'IDLE'),
+    ]);
+    recBtn.addEventListener('click', async () => {
+      if (!recording && !recorded) {
+        const ok = await startRecording({ block: pieceKey, chunk: chunkLabel, date: isoDate() });
+        if (!ok) { toast('Mic denied'); return; }
+        recording = true;
+        recBtn.classList.remove('off'); recBtn.classList.add('on');
+        $('#recState').textContent = 'REC';
+        $('#recVal').textContent = 'Tap to stop';
+        logEvent('piece_record_start', { pieceKey });
+      } else if (recording) {
+        const rec = await stopRecording();
+        recording = false; recorded = true;
+        recBlobMeta = rec;
+        recBtn.classList.remove('on'); recBtn.classList.add('done');
+        $('#recState').textContent = 'SAVED';
+        $('#recVal').textContent = `Saved · ${fmtSec(rec?.durationSec||0)}`;
+        logEvent('piece_record_stop', { pieceKey, dur: rec?.durationSec });
       }
-      const t = prompt('Tag — worked / didn\'t / neutral', 'neutral');
-      tag = ['worked','didn\'t','neutral','didnt'].includes(t) ? (t==='didnt'?'didn\'t':t) : 'neutral';
+    });
+    body.appendChild(recBtn);
+
+    // Notes
+    body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:8px;'}, 'Notes'));
+    const ta = el('textarea',{placeholder:'What worked, what didn\'t, what to revisit…', style:'min-height:120px;'});
+    body.appendChild(ta);
+
+    // Tag
+    body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:8px;'}, 'Tag'));
+    let tag = 'neutral';
+    const tagRow = el('div',{class:'row wrap', style:'gap:10px;'});
+    ['worked','didn\'t','neutral'].forEach(t => {
+      const b = el('button',{class:'chip ' + (t===tag?'primary':'')}, [el('span',{class:'inner'}, t)]);
+      b.addEventListener('click', ()=>{
+        tag = t;
+        Array.from(tagRow.children).forEach(c=>c.classList.remove('primary'));
+        b.classList.add('primary');
+      });
+      tagRow.appendChild(b);
+    });
+    body.appendChild(tagRow);
+
+    // Mastered toggle
+    let mastered = false;
+    const mastWrap = el('label',{class:'row',style:'gap:10px;margin-top:12px;'});
+    const cb = el('input',{type:'checkbox', style:'width:22px;height:22px;min-height:0;padding:0;border-width:0;appearance:auto;-webkit-appearance:checkbox;'});
+    cb.addEventListener('change', e => mastered = e.target.checked);
+    mastWrap.appendChild(cb);
+    mastWrap.appendChild(el('span',{}, 'Mastered this chunk — advance to next chunk'));
+    body.appendChild(mastWrap);
+
+    // Save button
+    root.appendChild(el('div',{class:'band-bottom'},[
+      el('button',{class:'big primary', onclick: save}, [el('span',{class:'inner'}, `Save · continue to ${pieceKey==='adagio'?'Fuga':'Improv'}`)]),
+    ]));
+
+    async function save(){
+      const note = ta.value.trim();
+      if (!note) {
+        await modal({title:'Notes required', message:'Add at least one short note before continuing.', buttons:[{label:'OK',value:true,primary:true}]});
+        ta.focus();
+        return;
+      }
+      // Stop any in-progress rec on save
+      if (recording) { try { await stopRecording(); } catch(e){} recorded = true; }
       await addChunkNote(pieceKey, chunkLabel, { text: note, tag });
-      mastered = confirm('Have you mastered this passage? OK = advance chunk.');
-      if (mastered) {
-        advanceChunk(piece);
-        await kvSet('settings', SETTINGS);
-      }
+      if (mastered) { advanceChunk(piece); await kvSet('settings', SETTINGS); }
       SESSION.blocks[pieceKey] = { done:true, chunk: chunkLabel, mastered, recorded };
       persistSession();
+      logEvent(pieceKey+'_wrapup_save', { mastered, recorded, tag });
       transition(pieceKey==='adagio'?'Fuga':'Improv', nextFn);
     }
   });
@@ -1581,6 +1900,14 @@ function screenSettings() {
     body.appendChild(mkInput('Current start measure', SETTINGS.piece2.currentStart, v=>{SETTINGS.piece2.currentStart=v;kvSet('settings',SETTINGS);}, 'number'));
     body.appendChild(mkInput('Reference drone', SETTINGS.piece2.referenceDrone||'', v=>{SETTINGS.piece2.referenceDrone=v;kvSet('settings',SETTINGS);}));
     body.appendChild(el('div',{class:'rule'}));
+    body.appendChild(el('button',{class:'chip', onclick: async ()=>{
+      await flushLogs();
+      const logs = (await kvGet('logs'))||[];
+      const text = logs.map(l => `${l.iso}  [${l.screen}]  ${l.action}` + (l.data!=null?`  ${typeof l.data==='object'?JSON.stringify(l.data):l.data}`:'')).join('\n');
+      const blob = new Blob([text||'(no logs)'], {type:'text/plain'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `practice-log-${isoDate()}.txt`; a.click();
+    }}, 'Download logs'));
+    body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (confirm('Clear logs?')){ await kvSet('logs',[]); toast('Logs cleared'); } }}, 'Clear logs'));
     body.appendChild(el('button',{class:'chip', onclick: exportAll}, 'Export JSON'));
     body.appendChild(el('button',{class:'chip', onclick: importAll}, 'Import JSON'));
     body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (confirm('Wipe all local data?')) { indexedDB.deleteDatabase(DB_NAME); localStorage.clear(); location.reload(); } }}, 'Wipe all data'));
