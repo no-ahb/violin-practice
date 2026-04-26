@@ -715,16 +715,31 @@ function newSession(light=false) {
   };
 }
 function keyTempoName(tonic, minor){ return tonic + (minor?'m':'M'); }
-function scaleTempoFor(tonic, minor){
-  // start at 60, +5 each time this key recurs (per completed scale block)
+function tempoHistoryFor(tonic, minor){
   const k = keyTempoName(tonic, minor);
-  const n = (SETTINGS.scaleRecurrence && SETTINGS.scaleRecurrence[k]) || 0;
-  return 60 + 5*n;
+  return (SETTINGS.tempoHistory && SETTINGS.tempoHistory[k]) || [];
 }
-function bumpScaleRecurrence(tonic, minor){
+function scaleTempoFor(tonic, minor){
+  // Auto-suggested starting tempo:
+  //  - first time: 60
+  //  - thereafter: last session's ending tempo + small auto bump (when last session
+  //    didn't end with a manual decrease)
+  const hist = tempoHistoryFor(tonic, minor);
+  if (!hist.length) return 60;
+  const last = hist[hist.length-1];
+  const lastTempo = last.endTempo || last.startTempo || 60;
+  // Auto bump if last session ended at or above where it started; flat otherwise.
+  const wentForward = (last.endTempo||0) >= (last.startTempo||0);
+  const bump = wentForward ? 2 : 0;
+  return Math.max(40, Math.min(180, lastTempo + bump));
+}
+function recordSessionTempo(tonic, minor, entry){
   const k = keyTempoName(tonic, minor);
-  SETTINGS.scaleRecurrence = SETTINGS.scaleRecurrence || {};
-  SETTINGS.scaleRecurrence[k] = (SETTINGS.scaleRecurrence[k]||0) + 1;
+  SETTINGS.tempoHistory = SETTINGS.tempoHistory || {};
+  SETTINGS.tempoHistory[k] = SETTINGS.tempoHistory[k] || [];
+  SETTINGS.tempoHistory[k].push(entry);
+  // keep last 12 per key
+  if (SETTINGS.tempoHistory[k].length > 12) SETTINGS.tempoHistory[k] = SETTINGS.tempoHistory[k].slice(-12);
   kvSet('settings', SETTINGS);
 }
 function activeTimeNow() {
@@ -997,6 +1012,9 @@ function screenScalesTechnical() {
     const steps = scalesTechnicalSteps(info, dow, SESSION.light);
     // tempo: start at 60, +5 each recurrence of this key
     SESSION.tempo = scaleTempoFor(info.rootName, info.minor);
+    const startTempo = SESSION.tempo;
+    SESSION.tempoEvents = SESSION.tempoEvents || [];
+    SESSION.tempoEvents.push({ t: Date.now(), to: startTempo, kind: 'start', key: keyTempoName(info.rootName, info.minor) });
     AUDIO.setBpm(SESSION.tempo);
     const dronePc = (info.rootPc + droneDegree(dow, info.minor))%12;
     let stepIdx = -1;
@@ -1018,7 +1036,18 @@ function screenScalesTechnical() {
     const body = el('div',{class:'body stack'}); root.appendChild(body);
 
     // Audio control panel — big, prominent
-    body.appendChild(buildAudioPanel({ dronePc, droneLabel: NOTE_NAMES[dronePc], onTempoChange: bpm => { SESSION.tempo = bpm; logEvent('tempo_change', bpm); } }));
+    const histPrev = tempoHistoryFor(info.rootName, info.minor);
+    body.appendChild(buildAudioPanel({ dronePc, droneLabel: NOTE_NAMES[dronePc], onTempoChange: bpm => {
+      SESSION.tempo = bpm;
+      SESSION.tempoEvents.push({ t: Date.now(), to: bpm, kind: 'manual', stepIdx });
+      logEvent('tempo_change', { bpm, stepIdx });
+    } }));
+    if (histPrev.length) {
+      const last = histPrev[histPrev.length-1];
+      body.appendChild(el('div',{class:'tempo-hint'},
+        `Last time on ${NOTE_NAMES[info.rootPc]} ${info.minor?'minor':'major'}: ${last.startTempo}→${last.endTempo} bpm · ${histPrev.length} session${histPrev.length>1?'s':''} of history`
+      ));
+    }
 
     body.appendChild(el('div',{class:'bowing-line'}, `Bowing — ${dayBowing(dow)}`));
 
@@ -1078,13 +1107,22 @@ function screenScalesTechnical() {
       clearTimeout(stepTickT);
       AUDIO.stopMetronome();
       AUDIO.fadeDrone(500);
-      bumpScaleRecurrence(info.rootName, info.minor);
       const tk = keyTempoName(info.rootName, info.minor);
+      const totalMs = stepTimes.reduce((a,b)=>a+(b||0),0);
+      const entry = {
+        date: isoDate(),
+        startTempo,
+        endTempo: SESSION.tempo,
+        stepTimesMs: stepTimes.slice(),
+        totalMs,
+        tempoEvents: SESSION.tempoEvents.slice(),
+      };
+      recordSessionTempo(info.rootName, info.minor, entry);
       SETTINGS.tempoPerKey[tk] = Math.max(SESSION.tempo, SETTINGS.tempoPerKey[tk]||0);
       await kvSet('settings', SETTINGS);
-      SESSION.blocks.scales.technical = { done:true, tempo: SESSION.tempo, stepTimesMs: stepTimes };
+      SESSION.blocks.scales.technical = { done:true, ...entry };
       persistSession();
-      logEvent('scales_technical_complete', { stepTimes, tempo: SESSION.tempo });
+      logEvent('scales_technical_complete', entry);
       await transition('Scales · Modal', screenScalesModal);
     }
   });

@@ -278,6 +278,10 @@ ul.bare { list-style: none; }
 }
 .scale-pip:active { transform: scale(0.96); }
 .scale-pip.on { background: var(--ink, currentColor); border-color: var(--ink, currentColor); color: var(--bg); }
+.tempo-hint {
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  font-weight: 500; opacity: .7; padding: 4px 0;
+}
 
 /* ---------- Modal ---------- */
 .modal-overlay {
