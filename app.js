@@ -596,9 +596,11 @@ function pickColor(){
   const next = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   CURRENT_COLOR = next;
   const app = $('#app');
+  const ink = pickInk(next);
   app.style.background = next;
-  app.style.color = pickInk(next);
+  app.style.color = ink;
   app.style.setProperty('--bg', next);
+  app.style.setProperty('--ink', ink);
   document.querySelector('meta[name=theme-color]').setAttribute('content', next);
 }
 function pickInk(hex){
@@ -1205,6 +1207,9 @@ function pickerRow(label, key, options, cb) {
 
 async function transition(nextLabel, nextFn) {
   pauseActiveClock();
+  let advanced = false;
+  function go(){ if (advanced) return; advanced = true; clearTimeout(autoT); startActiveClock(); nextFn(); }
+  let autoT = null;
   renderSameColor(root => {
     root.appendChild(el('div',{class:'band-top'},[el('div',{},[el('div',{class:'eyebrow'},'Complete'), el('h1',{}, nextLabel)])]));
     const body = el('div',{class:'body',style:'justify-content:center;align-items:center;'});
@@ -1215,11 +1220,18 @@ async function transition(nextLabel, nextFn) {
     p.setAttribute('d','M10 34 L26 50 L54 14');
     sv.appendChild(p);
     body.appendChild(sv);
+    const noteBtn = el('button',{class:'chip'}, 'Add note');
+    noteBtn.addEventListener('click', async () => {
+      const ta = el('textarea',{placeholder:'A quick note about that block…',style:'min-height:120px;'});
+      const wrap = el('div',{}); wrap.appendChild(ta);
+      const v = await modal({title:'Add note', content: wrap, buttons:[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]});
+      if (v && ta.value.trim()) { SESSION.notes.push({time:Date.now(), text: ta.value.trim(), block:'transition'}); persistSession(); toast('Saved'); }
+    });
     root.appendChild(el('div',{class:'band-bottom'},[
-      el('button',{class:'chip', onclick: async ()=>{ const note = prompt('Add a quick note (optional):'); if (note){ SESSION.notes.push({time:Date.now(), text:note, block: 'transition'}); persistSession(); }}}, 'Add note'),
-      el('button',{class:'big primary', onclick: ()=>{ startActiveClock(); nextFn(); }}, [el('span',{class:'inner'}, 'Continue')]),
+      noteBtn,
+      el('button',{class:'big primary', onclick: go}, [el('span',{class:'inner'}, 'Continue')]),
     ]));
-    setTimeout(()=>{ startActiveClock(); nextFn(); }, 2000);
+    autoT = setTimeout(go, 2200);
   });
 }
 
@@ -1775,6 +1787,7 @@ function isSystemDay(dow) {
   return true;
 }
 function screenImprov() {
+  CURRENT_SCREEN = 'improv';
   render(async (root) => {
     const dow = todayDow();
     const system = isSystemDay(dow);
@@ -1784,13 +1797,16 @@ function screenImprov() {
     if (SESSION.light) durSec /= 2;
     let remaining = durSec;
     let timerId = null;
-    let currentRec = null;
+    let started = false, paused = false, finished = false;
 
     let patches = await idbAll('patches');
     let patch = patches[patches.length-1];
     if (system && !patch) {
-      const text = prompt('Describe your current patch (delay, feedback, modulations, signal flow):', '') || 'initial patch';
-      patch = { id: undefined, version: 1, text, created: isoDate(), sessionsCount: 0 };
+      const ta = el('textarea',{placeholder:'delay, feedback, modulations, signal flow…',style:'min-height:160px;'});
+      const wrap = el('div',{}); wrap.appendChild(ta);
+      const v = await modal({ title:'Describe your patch', message:'You can edit this any time.', content: wrap, buttons:[{label:'Skip', value:false},{label:'Save', value:true, primary:true}] });
+      const text = (v && ta.value.trim()) || 'initial patch';
+      patch = { version: 1, text, created: isoDate(), sessionsCount: 0 };
       await idbSet('patches', null, patch);
       patches = await idbAll('patches');
       patch = patches[patches.length-1];
@@ -1808,72 +1824,164 @@ function screenImprov() {
     ]));
     const body = el('div',{class:'body stack'}); root.appendChild(body);
     if (system) {
-      body.appendChild(el('p',{}, patch?.text||''));
+      body.appendChild(el('div',{class:'meta-item'},[
+        el('div',{class:'meta-label'}, 'Patch'),
+        el('div',{class:'meta-value', id:'patchText'}, patch?.text||''),
+      ]));
       body.appendChild(el('p',{class:'dim'}, `Session ${(patch?.sessionsCount||0)+1} of this patch — transparent yet?`));
       body.appendChild(el('p',{class:'dim'}, 'Secondary constraint: ' + secondaryConstraint(dow, info.weekNum)));
       body.appendChild(el('button',{class:'chip', onclick: async ()=>{
-        const t = prompt('Edit patch description (saves as new version):', patch.text);
-        if (t && t.trim()) { patch = { version: patches.length+1, text: t.trim(), created: isoDate(), sessionsCount: 0 }; await idbSet('patches', null, patch); toast('Patch v'+patch.version+' saved'); }
+        const ta = el('textarea',{style:'min-height:140px;'}); ta.value = patch.text;
+        const wrap = el('div',{}); wrap.appendChild(ta);
+        const v = await modal({title:'Edit patch', message:'Saves as a new version.', content: wrap, buttons:[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]});
+        if (v && ta.value.trim()) { patch = { version: patches.length+1, text: ta.value.trim(), created: isoDate(), sessionsCount: 0 }; await idbSet('patches', null, patch); $('#patchText').textContent = patch.text; toast('Patch v'+patch.version+' saved'); }
       }}, 'Edit patch'));
     } else {
-      body.appendChild(el('h2',{}, acousticConstraint));
+      body.appendChild(el('h2',{class:'step-title'}, acousticConstraint));
       body.appendChild(el('button',{class:'chip', onclick: ()=>{ SETTINGS.acousticIdx++; kvSet('settings',SETTINGS); screenImprov(); }}, 'Rotate constraint'));
     }
     body.appendChild(el('p',{class:'dim'}, ambient));
-    const notesList = el('div',{class:'list', id:'notes'});
-    body.appendChild(notesList);
+    body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:8px;'}, 'Notes captured'));
+    const notesList = el('div',{class:'list', id:'notes'}); body.appendChild(notesList);
 
-    root.appendChild(el('div',{class:'band-bottom'},[
-      el('button',{class:'big primary', onclick: go}, [el('span',{class:'inner'}, 'Setup ready? Start')]),
-      el('button',{class:'chip', id:'noteBtn', onclick: dropNote, disabled:true}, '+ Note'),
-      el('button',{class:'chip', onclick: endEarly}, 'Done'),
-    ]));
+    const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'impStartLbl'}, 'Setup ready · Start')]);
+    const noteBtn = el('button',{class:'chip', id:'noteBtn', disabled:true}, '+ Note');
+    const doneBtn = el('button',{class:'chip'}, 'Done');
+    startBtn.addEventListener('click', () => {
+      if (finished) return;
+      if (!started) go();
+      else { paused = !paused; $('#impStartLbl').textContent = paused?'Resume':'Pause'; logEvent('improv_pause', paused); }
+    });
+    noteBtn.addEventListener('click', dropNote);
+    doneBtn.addEventListener('click', async () => {
+      if (finished) return;
+      const ok = await askConfirm('End improv early?', 'Stop the timer and go to wrap-up.', {okLabel:'End',cancelLabel:'Keep going'});
+      if (ok) { remaining = 0; if (timerId) clearInterval(timerId); finish(); }
+    });
+    root.appendChild(el('div',{class:'band-bottom'},[startBtn, noteBtn, doneBtn]));
+
     async function go() {
+      if (started) return;
+      started = true;
       await AUDIO.resume();
-      await startRecording({ block: 'improv', system, patchVersion: patch?.version, date: isoDate(), longSession, constraint: system? null : acousticConstraint });
+      const ok = await startRecording({ block: 'improv', system, patchVersion: patch?.version, date: isoDate(), longSession, constraint: system? null : acousticConstraint });
+      if (!ok) toast('Mic denied — recording off');
       $('#noteBtn').disabled = false;
+      $('#impStartLbl').textContent = 'Pause';
+      logEvent('improv_start', { durSec, system, longSession });
       timerId = setInterval(() => {
+        if (paused || finished) return;
         remaining -= 1;
         $('#timer').textContent = fmtSec(remaining);
         if (remaining <= 0) { clearInterval(timerId); finish(); }
       }, 1000);
     }
-    async function endEarly(){ remaining = 0; clearInterval(timerId); finish(); }
     async function dropNote() {
-      const text = prompt('Note at ' + fmtSec(durSec-remaining) + ':');
-      if (!text) return;
-      const tag = (prompt('Tag (worked/didn\'t/neutral):', 'neutral')||'neutral');
-      const note = { atSec: durSec-remaining, text, tag };
+      const ta = el('textarea',{placeholder:'Quick note…', style:'min-height:90px;'});
+      const wrap = el('div',{}); wrap.appendChild(ta);
+      const tagRow = el('div',{class:'row wrap',style:'gap:8px;margin-top:8px;'});
+      let tagSel = 'neutral';
+      ['worked','didn\'t','neutral'].forEach(t => {
+        const b = el('button',{class:'chip ' + (t===tagSel?'primary':'')}, [el('span',{class:'inner'}, t)]);
+        b.addEventListener('click', () => { tagSel = t; Array.from(tagRow.children).forEach(c=>c.classList.remove('primary')); b.classList.add('primary'); });
+        tagRow.appendChild(b);
+      });
+      wrap.appendChild(tagRow);
+      const v = await modal({title:`Note at ${fmtSec(durSec-remaining)}`, content: wrap, buttons:[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]});
+      if (!v) return;
+      const text = ta.value.trim(); if (!text) return;
+      const note = { atSec: durSec-remaining, text, tag: tagSel };
       SESSION.notes.push({block:'improv', ...note, time: Date.now()});
-      notesList.appendChild(el('div',{class:'item'},[el('span',{}, `${fmtSec(note.atSec)} [${tag}]`), el('span',{},text)]));
+      notesList.appendChild(el('div',{class:'item'},[el('span',{}, `${fmtSec(note.atSec)} · ${tagSel}`), el('span',{},text)]));
+      logEvent('improv_note', note);
     }
     async function finish() {
+      if (finished) return;
+      finished = true;
       const rec = await stopRecording();
-      let feeling = parseInt(prompt('Feeling (1–5):','3')||'3',10);
-      let focus = parseInt(prompt('Focus (1–5):','3')||'3',10);
-      let note = '';
-      while (!note) { note = prompt('Notes (required, 1+):')||''; if (!note) toast('need a note'); }
-      const tag = prompt('Tag (worked/didn\'t):','worked') || 'worked';
+      logEvent('improv_timer_done', { rec: !!rec });
+      screenImprovWrapUp({ rec, system, patch, longSession });
+    }
+  });
+}
+
+function screenImprovWrapUp({ rec, system, patch, longSession }){
+  CURRENT_SCREEN = 'improv_wrapup';
+  render(root => {
+    root.appendChild(el('div',{class:'band-top'},[
+      el('div',{},[el('div',{class:'eyebrow'},'Improv · Wrap-up'), el('h1',{}, rec ? `Take · ${fmtSec(rec.durationSec||0)}` : 'No recording')]),
+    ]));
+    const body = el('div',{class:'body stack'}); root.appendChild(body);
+
+    body.appendChild(el('div',{class:'menu-eyebrow'}, 'Feeling'));
+    let feeling = 3;
+    body.appendChild(scaleRow(1,5, v => feeling = v, 3, 'feeling'));
+
+    body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:6px;'}, 'Focus'));
+    let focus = 3;
+    body.appendChild(scaleRow(1,5, v => focus = v, 3, 'focus'));
+
+    body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:6px;'}, 'Notes'));
+    const ta = el('textarea',{placeholder:'What happened. What to chase next time.', style:'min-height:140px;'});
+    body.appendChild(ta);
+
+    body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:6px;'}, 'Tag'));
+    let tag = 'worked';
+    const tagRow = el('div',{class:'row wrap', style:'gap:10px;'});
+    ['worked','didn\'t','neutral'].forEach(t => {
+      const b = el('button',{class:'chip ' + (t===tag?'primary':'')}, [el('span',{class:'inner'}, t)]);
+      b.addEventListener('click', ()=>{ tag = t; Array.from(tagRow.children).forEach(c=>c.classList.remove('primary')); b.classList.add('primary'); });
+      tagRow.appendChild(b);
+    });
+    body.appendChild(tagRow);
+
+    if (rec) {
+      body.appendChild(el('button',{class:'chip', style:'margin-top:8px;', onclick: ()=>listenBackUI(rec)}, 'Listen back'));
+    }
+
+    root.appendChild(el('div',{class:'band-bottom'},[
+      el('button',{class:'big primary', onclick: save}, [el('span',{class:'inner'}, 'Save · finish session')]),
+    ]));
+
+    async function save(){
+      const note = ta.value.trim();
+      if (!note) {
+        await modal({title:'Notes required', message:'Add at least one short note before finishing.', buttons:[{label:'OK',value:true,primary:true}]});
+        ta.focus(); return;
+      }
       const annotations = (SESSION.notes||[]).filter(n=>n.block==='improv' && n.atSec!=null).map(n=>({atSec:n.atSec,text:n.text,tag:n.tag}));
-      annotations.push({atSec: null, text: note, tag});
+      annotations.push({ atSec: null, text: note, tag });
       if (rec) {
-        rec.annotations = annotations;
-        rec.feeling = feeling; rec.focus = focus;
-        rec.longSession = longSession;
+        rec.annotations = annotations; rec.feeling = feeling; rec.focus = focus; rec.longSession = longSession;
         await idbSet('recordings', null, rec);
       }
       if (system && patch) {
         patch.sessionsCount = (patch.sessionsCount||0)+1;
         await idbSet('patches', null, patch);
       }
-      const later = !confirm('Listen back now? OK = now, Cancel = later');
-      if (!later && rec) await listenBackUI(rec);
       SESSION.blocks.improv = { done:true, system, patchVersion: patch?.version };
       persistSession();
+      logEvent('improv_save', { feeling, focus, tag, recId: rec?.id });
       screenClose();
     }
   });
 }
+function scaleRow(min, max, onChange, initial=3, key='scale'){
+  const wrap = el('div',{class:'scale-row'});
+  let value = initial;
+  for (let i=min; i<=max; i++){
+    const b = el('button',{class:'scale-pip ' + (i===initial?'on':'')}, String(i));
+    b.addEventListener('click', () => {
+      value = i; onChange && onChange(i);
+      Array.from(wrap.children).forEach(c=>c.classList.remove('on'));
+      b.classList.add('on');
+      logEvent(key+'_set', i);
+    });
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
 function secondaryConstraint(dow, weekNum){
   const list = [
     'One pitch — explore what the system does with it',
@@ -1971,11 +2079,21 @@ async function listenBackUI(rec) {
       audio.pause(); playing=false; playBtn.textContent='Play';
       const pct = (e.offsetX / wf.clientWidth);
       const t = pct * rec.durationSec;
-      const text = prompt(`Note at ${fmtSec(t)}:`);
-      if (!text) return;
-      const tag = prompt('Tag (worked/didn\'t/neutral):','neutral')||'neutral';
+      const ta = el('textarea',{placeholder:'note…', style:'min-height:90px;'});
+      const wrap2 = el('div',{}); wrap2.appendChild(ta);
+      const tagRow = el('div',{class:'row wrap', style:'gap:8px;margin-top:8px;'});
+      let tagSel = 'neutral';
+      ['worked','didn\'t','neutral'].forEach(tg => {
+        const b = el('button',{class:'chip ' + (tg===tagSel?'primary':'')}, [el('span',{class:'inner'}, tg)]);
+        b.addEventListener('click', () => { tagSel = tg; Array.from(tagRow.children).forEach(c=>c.classList.remove('primary')); b.classList.add('primary'); });
+        tagRow.appendChild(b);
+      });
+      wrap2.appendChild(tagRow);
+      const v = await modal({title:`Note at ${fmtSec(t)}`, content: wrap2, buttons:[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]});
+      if (!v) return;
+      const text = ta.value.trim(); if (!text) return;
       rec.annotations = rec.annotations || [];
-      rec.annotations.push({ atSec: t, text, tag });
+      rec.annotations.push({ atSec: t, text, tag: tagSel });
       await idbSet('recordings', null, rec);
       const m = el('div',{class:'marker'}); m.style.left = (t/rec.durationSec*100)+'%'; wf.appendChild(m);
     });
@@ -2069,10 +2187,10 @@ function screenSettings() {
       const blob = new Blob([text||'(no logs)'], {type:'text/plain'});
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `practice-log-${isoDate()}.txt`; a.click();
     }}, 'Download logs'));
-    body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (confirm('Clear logs?')){ await kvSet('logs',[]); toast('Logs cleared'); } }}, 'Clear logs'));
+    body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (await askConfirm('Clear logs?', 'Local action log will be erased.', {okLabel:'Clear',danger:true})){ await kvSet('logs',[]); toast('Logs cleared'); } }}, 'Clear logs'));
     body.appendChild(el('button',{class:'chip', onclick: exportAll}, 'Export JSON'));
     body.appendChild(el('button',{class:'chip', onclick: importAll}, 'Import JSON'));
-    body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (confirm('Wipe all local data?')) { indexedDB.deleteDatabase(DB_NAME); localStorage.clear(); location.reload(); } }}, 'Wipe all data'));
+    body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (await askConfirm('Wipe all local data?', 'This deletes settings, sessions, recordings, chunks, patches and logs. Cannot be undone.', {okLabel:'Wipe everything', danger:true})) { indexedDB.deleteDatabase(DB_NAME); localStorage.clear(); location.reload(); } }}, 'Wipe all data'));
     body.appendChild(el('p',{class:'dim',style:'margin-top:16px;'}, `v1 · ${SESSION_COUNT_CACHE} sessions completed.`));
   });
 }
@@ -2129,7 +2247,7 @@ function screenRecordings() {
         el('button',{class:'chip', onclick: ()=>listenBackUI(r)}, 'Play'),
         el('button',{class:'chip', onclick: async ()=>{ r.starred=!r.starred; await idbSet('recordings',null,r); screenRecordings(); }}, r.starred?'Unstar':'Star'),
         el('button',{class:'chip', onclick: async ()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(r.blob); a.download=`${r.id}.${(r.mime||'').includes('mp4')?'m4a':'webm'}`; a.click(); }}, '↓'),
-        el('button',{class:'chip', onclick: async ()=>{ if (confirm('Delete?')) { await idbDel('recordings', r.id); screenRecordings(); } }}, '✕'),
+        el('button',{class:'chip', onclick: async ()=>{ if (await askConfirm('Delete recording?', `${r.block} · ${r.date}`, {okLabel:'Delete', danger:true})) { await idbDel('recordings', r.id); screenRecordings(); } }}, '✕'),
       ]));
       body.appendChild(row);
     });
@@ -2257,10 +2375,16 @@ async function boot() {
     const s = await kvGet('settings');
     if (s) SETTINGS = {...defaultSettings, ...s};
   } catch(e){}
+  // Single-user app — onboarding is permanently skipped. Seed sensible defaults.
+  SETTINGS.onboarded = true;
+  if (!SETTINGS.startDate || SETTINGS.startDate === isoDate(new Date())) {
+    // Anchor cycle start to Monday 2026-04-27 unless the user already practiced.
+    SETTINGS.startDate = '2026-04-27';
+  }
+  await kvSet('settings', SETTINGS);
   AUDIO = new AudioEngine();
   await refreshSessionCount();
-  if (!SETTINGS.onboarded) screenOnboarding();
-  else screenHome();
+  screenHome();
 }
 boot().catch(e => {
   document.body.innerHTML = '<pre style="color:#f4f1ea;padding:20px;">Boot error: '+e.message+'</pre>';
