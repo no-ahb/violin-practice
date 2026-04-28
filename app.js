@@ -406,6 +406,7 @@ class AudioEngine {
   async startMetronome(bpm, accentEvery=0) {
     await this.resume();
     this.metroBpm = bpm;
+    document.documentElement.style.setProperty('--metro-period', (60/bpm) + 's');
     // If already running, just retune; don't spawn a second tick loop.
     if (this.metroPlaying) return;
     this.metroPlaying = true;
@@ -443,7 +444,7 @@ class AudioEngine {
     o.connect(g).connect(this.metroGain);
     o.start(when); o.stop(when+dur+0.01);
   }
-  setBpm(b){ this.metroBpm = b; }
+  setBpm(b){ this.metroBpm = b; document.documentElement.style.setProperty('--metro-period', (60/b) + 's'); }
 
   // --- Chord playback for chord-scale block
   // Voice-led chord placement. Each new chord's pitch classes are placed at
@@ -663,16 +664,29 @@ function modal({ title, message, content, buttons, dismissible=false }) {
     document.body.appendChild(overlay);
   });
 }
-// Scale-degree picker for the drone long-press. Shows 12 chromatic options
-// labeled by degree relative to today's tonic; tapping resolves with the
-// chosen pitch class, Cancel/backdrop resolves null.
+// Volume slider row used inside long-press modals.
+function buildQuickVol(kind) {
+  const wrap = el('div',{class:'vol-quick'});
+  wrap.appendChild(el('div',{class:'vol-quick-label'}, 'VOLUME'));
+  const slider = el('input',{type:'range',min:0,max:1,step:0.01,class:'vol-quick-slider', 'aria-label':kind+' volume'});
+  slider.value = SETTINGS.volumes[kind] ?? 0.5;
+  slider.addEventListener('input', e => AUDIO.setVolume(kind, parseFloat(e.target.value)));
+  slider.addEventListener('change', e => logEvent(kind+'_volume', parseFloat(e.target.value)));
+  wrap.appendChild(slider);
+  return wrap;
+}
+
+// Drone long-press modal: volume on top, scale-degree picker below. Tap a
+// degree to switch and close; Cancel/backdrop closes without changing pitch.
+// Volume changes apply live and persist regardless of close path.
 function openDronePicker(currentPc, tonicPc) {
   return new Promise(resolve => {
     const labels = ['1','♭2','2','♭3','3','4','♭5','5','♭6','6','♭7','7'];
     const overlay = el('div',{class:'modal-overlay'});
     const card = el('div',{class:'modal-card'});
-    card.appendChild(el('div',{class:'modal-title'}, 'Drone pitch'));
-    card.appendChild(el('div',{class:'modal-message'}, `Relative to ${NOTE_NAMES[tonicPc]}. Tap to switch.`));
+    card.appendChild(el('div',{class:'modal-title'}, 'Drone'));
+    card.appendChild(buildQuickVol('drone'));
+    card.appendChild(el('div',{class:'modal-message',style:'margin-top:6px;'}, `Pitch — relative to ${NOTE_NAMES[tonicPc]}. Tap to switch.`));
     function close(v){ if (overlay.parentNode) overlay.parentNode.removeChild(overlay); resolve(v); }
     const grid = el('div',{class:'drone-pick-grid'});
     labels.forEach((lbl, semi) => {
@@ -685,11 +699,30 @@ function openDronePicker(currentPc, tonicPc) {
       grid.appendChild(btn);
     });
     card.appendChild(grid);
-    const cancelBtn = el('button',{class:'modal-btn'}, [el('span',{class:'inner'}, 'Cancel')]);
+    const cancelBtn = el('button',{class:'modal-btn'}, [el('span',{class:'inner'}, 'Done')]);
     cancelBtn.addEventListener('click', () => close(null));
     card.appendChild(el('div',{class:'modal-btns'}, [cancelBtn]));
     overlay.appendChild(card);
     overlay.addEventListener('click', e => { if (e.target===overlay) close(null); });
+    document.body.appendChild(overlay);
+  });
+}
+
+// Metro long-press modal: volume slider + current tempo readout.
+function openMetroControl() {
+  return new Promise(resolve => {
+    const overlay = el('div',{class:'modal-overlay'});
+    const card = el('div',{class:'modal-card'});
+    card.appendChild(el('div',{class:'modal-title'}, 'Metronome'));
+    card.appendChild(buildQuickVol('metro'));
+    const tempoLine = SESSION ? `${SESSION.tempo} bpm — adjust on screen with − / +.` : 'Adjust tempo on screen.';
+    card.appendChild(el('div',{class:'modal-message',style:'margin-top:6px;'}, tempoLine));
+    function close(){ if (overlay.parentNode) overlay.parentNode.removeChild(overlay); resolve(); }
+    const doneBtn = el('button',{class:'modal-btn primary'}, [el('span',{class:'inner'}, 'Done')]);
+    doneBtn.addEventListener('click', close);
+    card.appendChild(el('div',{class:'modal-btns'}, [doneBtn]));
+    overlay.appendChild(card);
+    overlay.addEventListener('click', e => { if (e.target===overlay) close(); });
     document.body.appendChild(overlay);
   });
 }
@@ -1215,7 +1248,7 @@ function screenScalesTechnical() {
     });
     const startBtn = el('button',{class:'big primary', onclick: ()=>{ if (!started) begin(); else nextStep(); }}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
     const noteBtn  = el('button',{class:'chip', onclick: () => dropStepNote('scales-technical', { stepIdx, stepTitle: steps[stepIdx]?.title })}, '+ Note');
-    const recBtn   = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
+    const recBtn   = el('button',{class:'chip record-button', onclick: toggleRecord}, 'Record');
     bottom.appendChild(backBtn);
     bottom.appendChild(startBtn);
     bottom.appendChild(noteBtn);
@@ -1298,43 +1331,58 @@ function buildAudioPanel({ dronePc, droneLabel, onTempoChange, compact = false, 
     el('div',{class:'ap-state', id:'apDroneState'}, SETTINGS.drone_on ? 'ON' : 'OFF'),
   ]);
 
-  // Long-press → scale-degree picker. Lets the user shift the drone to any
-  // degree relative to today's tonic (logged if changed).
-  let pressTimer = null;
-  let longPressFired = false;
-  droneToggle.addEventListener('pointerdown', () => {
-    longPressFired = false;
-    pressTimer = setTimeout(async () => {
-      pressTimer = null;
-      longPressFired = true;
-      if (pickerTonic == null) return;
-      const startPc = (AUDIO.currentDronePc != null) ? AUDIO.currentDronePc : (dronePc != null ? dronePc : pickerTonic);
-      const picked = await openDronePicker(startPc, pickerTonic);
-      if (picked == null) return;
-      SETTINGS.drone_on = true;
-      kvSet('settings', SETTINGS);
-      droneToggle.classList.add('on'); droneToggle.classList.remove('off');
-      $('#apDroneState').textContent = 'ON';
-      $('#apDroneVal').textContent = NOTE_NAMES[picked];
-      AUDIO.startDrone(picked);
-      if (picked !== startPc) {
-        const fromName = NOTE_NAMES[startPc], toName = NOTE_NAMES[picked];
-        const at = SESSION ? fmtMs(activeTimeNow()) : '';
-        if (SESSION) {
-          SESSION.notes.push({ block:'drone', text:`Drone changed from ${fromName} to ${toName}${at?' at '+at:''}`, time: Date.now() });
-          persistSession();
-        }
-        logEvent('drone_pitch_change', { from: startPc, to: picked, fromName, toName });
+  // Generic long-press wrapper. Adds .longpress-active for visual ring
+  // animation; on hold-completion runs onLong(); on release before the timer
+  // fires, the next click on the element is treated normally.
+  function attachLongPress(node, onLong) {
+    let timer = null;
+    let fired = false;
+    let lastFiredAt = 0;
+    node.addEventListener('pointerdown', () => {
+      fired = false;
+      node.classList.add('longpress-active');
+      timer = setTimeout(async () => {
+        timer = null;
+        fired = true;
+        lastFiredAt = Date.now();
+        node.classList.remove('longpress-active');
+        await onLong();
+      }, 500);
+    });
+    const cancel = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      node.classList.remove('longpress-active');
+    };
+    node.addEventListener('pointerup', cancel);
+    node.addEventListener('pointerleave', cancel);
+    node.addEventListener('pointercancel', cancel);
+    return { wasLong: () => fired && (Date.now() - lastFiredAt < 600), reset: () => { fired = false; } };
+  }
+
+  const droneLP = attachLongPress(droneToggle, async () => {
+    if (pickerTonic == null) return;
+    const startPc = (AUDIO.currentDronePc != null) ? AUDIO.currentDronePc : (dronePc != null ? dronePc : pickerTonic);
+    const picked = await openDronePicker(startPc, pickerTonic);
+    if (picked == null) return;
+    SETTINGS.drone_on = true;
+    kvSet('settings', SETTINGS);
+    droneToggle.classList.add('on'); droneToggle.classList.remove('off');
+    $('#apDroneState').textContent = 'ON';
+    $('#apDroneVal').textContent = NOTE_NAMES[picked];
+    AUDIO.startDrone(picked);
+    if (picked !== startPc) {
+      const fromName = NOTE_NAMES[startPc], toName = NOTE_NAMES[picked];
+      const at = SESSION ? fmtMs(activeTimeNow()) : '';
+      if (SESSION) {
+        SESSION.notes.push({ block:'drone', text:`Drone changed from ${fromName} to ${toName}${at?' at '+at:''}`, time: Date.now() });
+        persistSession();
       }
-    }, 500);
+      logEvent('drone_pitch_change', { from: startPc, to: picked, fromName, toName });
+    }
   });
-  const cancelPress = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
-  droneToggle.addEventListener('pointerup', cancelPress);
-  droneToggle.addEventListener('pointerleave', cancelPress);
-  droneToggle.addEventListener('pointercancel', cancelPress);
 
   droneToggle.addEventListener('click', () => {
-    if (longPressFired) { longPressFired = false; return; }
+    if (droneLP.wasLong()) { droneLP.reset(); return; }
     SETTINGS.drone_on = !SETTINGS.drone_on; kvSet('settings', SETTINGS);
     droneToggle.classList.toggle('on', SETTINGS.drone_on);
     droneToggle.classList.toggle('off', !SETTINGS.drone_on);
@@ -1345,9 +1393,12 @@ function buildAudioPanel({ dronePc, droneLabel, onTempoChange, compact = false, 
 
   const metroToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.metro_on?'on':'off')}, [
     el('div',{class:'ap-label'}, 'Metronome'),
+    el('span',{class:'metro-blink-dot', id:'metroBlinkDot'}),
     el('div',{class:'ap-state', id:'apMetroState'}, SETTINGS.metro_on ? 'ON' : 'OFF'),
   ]);
+  const metroLP = attachLongPress(metroToggle, async () => { await openMetroControl(); });
   metroToggle.addEventListener('click', () => {
+    if (metroLP.wasLong()) { metroLP.reset(); return; }
     SETTINGS.metro_on = !SETTINGS.metro_on; kvSet('settings', SETTINGS);
     metroToggle.classList.toggle('on', SETTINGS.metro_on);
     metroToggle.classList.toggle('off', !SETTINGS.metro_on);
@@ -1568,7 +1619,7 @@ function screenScalesModal() {
     const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
     startBtn.addEventListener('click', () => { if (!started) begin(); else nextStep(); });
     const noteBtn = el('button',{class:'chip', onclick: () => dropStepNote('scales-modal', { stepIdx, stepTitle: steps[stepIdx]?.title, mode: data.modeName })}, '+ Note');
-    const recBtn = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
+    const recBtn = el('button',{class:'chip record-button', onclick: toggleRecord}, 'Record');
     root.appendChild(el('div',{class:'band-bottom'},[startBtn, noteBtn, recBtn]));
 
     function tick(){
@@ -1721,7 +1772,7 @@ function screenScalesChordScale() {
     // Bottom controls
     const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'csStartLbl'}, 'Start')]);
     const doneBtn  = el('button',{class:'chip'}, 'Done');
-    const recBtn   = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
+    const recBtn   = el('button',{class:'chip record-button', onclick: toggleRecord}, 'Record');
     startBtn.addEventListener('click', () => {
       if (finished) return;
       if (!running) begin();
@@ -1737,17 +1788,27 @@ function screenScalesChordScale() {
     function refreshChord(){
       const i = chordIdx % prog.bars.length;
       const bar = prog.bars[i];
-      $('#csChord').textContent = bar.chord;
+      const chordEl = $('#csChord');
+      chordEl.textContent = bar.chord;
+      // Pulse the now-playing chord text on each change.
+      chordEl.classList.remove('just-changed');
+      void chordEl.offsetWidth; // force reflow so animation re-fires
+      chordEl.classList.add('just-changed');
       const romanEl = $('#csRoman'); if (romanEl) romanEl.textContent = bar.roman || '';
       $('#csScale').textContent = bar.scale.name;
       $('#csNotes').textContent = bar.scale.notes.join('  ');
       const chartEl = $('#csChart');
       if (chartEl) {
         Array.from(chartEl.children).forEach((n, idx) => {
-          n.classList.remove('active','next');
+          n.classList.remove('active','next','just-changed');
           if (idx === i) n.classList.add('active');
           if (idx === (i+1) % prog.bars.length) n.classList.add('next');
         });
+        const activeEl = chartEl.children[i];
+        if (activeEl) {
+          void activeEl.offsetWidth;
+          activeEl.classList.add('just-changed');
+        }
       }
     }
     refreshChord();
@@ -2148,13 +2209,13 @@ function screenImprov() {
       if (RECORDER && RECORDER.state === 'recording') {
         const r = await stopRecording();
         recBtn.textContent = 'Record';
-        recBtn.classList.remove('primary');
+        recBtn.classList.remove('recording');
         toast('Saved ' + fmtSec(r?.durationSec || 0));
       } else {
         const ok = await startRecording({ block:'improv', system, patchVersion: patch?.version, date: isoDate(), longSession, constraint: system ? null : acousticConstraint });
         if (ok) {
           recBtn.textContent = 'Stop';
-          recBtn.classList.add('primary');
+          recBtn.classList.add('recording');
           toast('Recording…');
         } else {
           toast('Mic denied');
@@ -2349,6 +2410,16 @@ async function toggleRecord() {
     const ok = await startRecording({ block: currentBlockKey(), date: isoDate(), key: SESSION?.tonic, minor: SESSION?.minor });
     if (ok) toast('Recording…');
   }
+  refreshRecordButtons();
+}
+// Sync any chip-style record buttons (class .record-button) to the live
+// recording state — text + pulse class.
+function refreshRecordButtons() {
+  const isRec = !!(RECORDER && RECORDER.state === 'recording');
+  document.querySelectorAll('.record-button').forEach(b => {
+    b.classList.toggle('recording', isRec);
+    b.textContent = isRec ? 'Stop' : 'Record';
+  });
 }
 async function quickRecord(seconds, meta) {
   const ok = await startRecording(meta);
