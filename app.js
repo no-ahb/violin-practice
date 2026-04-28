@@ -1154,12 +1154,12 @@ function screenScalesTechnical() {
   });
 }
 
-// Inline audio control panel — used in scales screens.
-function buildAudioPanel({ dronePc, droneLabel, onTempoChange }) {
-  const wrap = el('div',{class:'audio-panel'});
+// Inline audio control panel — used in scales screens (full) and piece blocks
+// (compact: drone + metro side-by-side, no inline volumes — those live in the
+// drawer when needed).
+function buildAudioPanel({ dronePc, droneLabel, onTempoChange, compact = false, showTempo = true }) {
+  const wrap = el('div',{class: 'audio-panel' + (compact ? ' compact' : '')});
 
-  // Drone row
-  const droneRow = el('div',{class:'ap-row drone-row'});
   const droneToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.drone_on?'on':'off')}, [
     el('div',{class:'ap-label'}, 'Drone'),
     el('div',{class:'ap-value', id:'apDroneVal'}, droneLabel || ''),
@@ -1173,16 +1173,7 @@ function buildAudioPanel({ dronePc, droneLabel, onTempoChange }) {
     if (SETTINGS.drone_on && dronePc!=null) AUDIO.startDrone(dronePc); else AUDIO.fadeDrone(300);
     logEvent('drone_toggle', SETTINGS.drone_on);
   });
-  const droneVol = el('input',{type:'range',min:0,max:1,step:0.01, class:'ap-vol', 'aria-label':'Drone volume'});
-  droneVol.value = SETTINGS.volumes.drone;
-  droneVol.addEventListener('input', e => { AUDIO.setVolume('drone', parseFloat(e.target.value)); });
-  droneVol.addEventListener('change', e => logEvent('drone_volume', parseFloat(e.target.value)));
-  droneRow.appendChild(droneToggle);
-  droneRow.appendChild(el('div',{class:'ap-vol-wrap'},[el('div',{class:'ap-vol-label'},'Vol'), droneVol]));
-  wrap.appendChild(droneRow);
 
-  // Metronome row
-  const metroRow = el('div',{class:'ap-row metro-row'});
   const metroToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.metro_on?'on':'off')}, [
     el('div',{class:'ap-label'}, 'Metronome'),
     el('div',{class:'ap-state', id:'apMetroState'}, SETTINGS.metro_on ? 'ON' : 'OFF'),
@@ -1195,33 +1186,47 @@ function buildAudioPanel({ dronePc, droneLabel, onTempoChange }) {
     if (SETTINGS.metro_on && SESSION) AUDIO.startMetronome(SESSION.tempo); else AUDIO.stopMetronome();
     logEvent('metro_toggle', SETTINGS.metro_on);
   });
-  const metroVol = el('input',{type:'range',min:0,max:1,step:0.01,class:'ap-vol','aria-label':'Metronome volume'});
-  metroVol.value = SETTINGS.volumes.metro;
-  metroVol.addEventListener('input', e => AUDIO.setVolume('metro', parseFloat(e.target.value)));
-  metroVol.addEventListener('change', e => logEvent('metro_volume', parseFloat(e.target.value)));
-  metroRow.appendChild(metroToggle);
-  metroRow.appendChild(el('div',{class:'ap-vol-wrap'},[el('div',{class:'ap-vol-label'},'Vol'), metroVol]));
-  wrap.appendChild(metroRow);
 
-  // Tempo row
-  const tempoRow = el('div',{class:'ap-row tempo-row'});
-  const tempoMinus = el('button',{class:'tempo-btn'}, '−');
-  const tempoPlus  = el('button',{class:'tempo-btn'}, '+');
-  const tempoVal = el('div',{class:'tempo-display', id:'tempoDisplay'}, `${SESSION?SESSION.tempo:60}`);
-  const tempoLbl = el('div',{class:'tempo-label'}, 'BPM');
-  function changeTempo(delta){
-    if (!SESSION) return;
-    SESSION.tempo = Math.max(30, Math.min(220, SESSION.tempo + delta));
-    AUDIO.setBpm(SESSION.tempo);
-    $('#tempoDisplay').textContent = SESSION.tempo;
-    onTempoChange && onTempoChange(SESSION.tempo);
+  if (compact) {
+    // Side-by-side; no inline volume sliders (use drawer for vol).
+    wrap.appendChild(el('div',{class:'ap-row'},[droneToggle, metroToggle]));
+  } else {
+    const droneVol = el('input',{type:'range',min:0,max:1,step:0.01, class:'ap-vol', 'aria-label':'Drone volume'});
+    droneVol.value = SETTINGS.volumes.drone;
+    droneVol.addEventListener('input', e => AUDIO.setVolume('drone', parseFloat(e.target.value)));
+    droneVol.addEventListener('change', e => logEvent('drone_volume', parseFloat(e.target.value)));
+    const metroVol = el('input',{type:'range',min:0,max:1,step:0.01,class:'ap-vol','aria-label':'Metronome volume'});
+    metroVol.value = SETTINGS.volumes.metro;
+    metroVol.addEventListener('input', e => AUDIO.setVolume('metro', parseFloat(e.target.value)));
+    metroVol.addEventListener('change', e => logEvent('metro_volume', parseFloat(e.target.value)));
+    wrap.appendChild(el('div',{class:'ap-row drone-row'},[
+      droneToggle, el('div',{class:'ap-vol-wrap'},[el('div',{class:'ap-vol-label'},'Vol'), droneVol])
+    ]));
+    wrap.appendChild(el('div',{class:'ap-row metro-row'},[
+      metroToggle, el('div',{class:'ap-vol-wrap'},[el('div',{class:'ap-vol-label'},'Vol'), metroVol])
+    ]));
   }
-  tempoMinus.addEventListener('click', ()=>changeTempo(-2));
-  tempoPlus.addEventListener('click', ()=>changeTempo(+2));
-  tempoRow.appendChild(tempoMinus);
-  tempoRow.appendChild(el('div',{class:'tempo-stack'},[tempoVal, tempoLbl]));
-  tempoRow.appendChild(tempoPlus);
-  wrap.appendChild(tempoRow);
+
+  if (showTempo) {
+    const tempoMinus = el('button',{class:'tempo-btn'}, '−');
+    const tempoPlus  = el('button',{class:'tempo-btn'}, '+');
+    const tempoVal = el('div',{class:'tempo-display', id:'tempoDisplay'}, `${SESSION?SESSION.tempo:60}`);
+    const tempoLbl = el('div',{class:'tempo-label'}, 'BPM');
+    function changeTempo(delta){
+      if (!SESSION) return;
+      SESSION.tempo = Math.max(30, Math.min(220, SESSION.tempo + delta));
+      AUDIO.setBpm(SESSION.tempo);
+      $('#tempoDisplay').textContent = SESSION.tempo;
+      onTempoChange && onTempoChange(SESSION.tempo);
+    }
+    tempoMinus.addEventListener('click', ()=>changeTempo(-2));
+    tempoPlus.addEventListener('click', ()=>changeTempo(+2));
+    wrap.appendChild(el('div',{class:'ap-row tempo-row'},[
+      tempoMinus,
+      el('div',{class:'tempo-stack'},[tempoVal, tempoLbl]),
+      tempoPlus,
+    ]));
+  }
 
   return wrap;
 }
@@ -1664,11 +1669,19 @@ function screenPieceBlock(pieceKey, piece, durSec, nextFn) {
     const chunkLabel = currentChunkLabel(piece);
     const prior = (await chunkNotes(pieceKey, chunkLabel)).slice(-3).reverse();
     const droneRoot = piece.referenceDrone;
+    const dronePc = (droneRoot && NOTE_TO_PC[droneRoot]!=null) ? NOTE_TO_PC[droneRoot] : null;
     let remaining = durSec;
     let runTimer = null;
     let running = false;
     let finished = false;
-    let droneOn = false, metroOn = false;
+
+    // Spec: Adagio/Fuga default to drone OFF, metro OFF. Sync the SETTINGS
+    // toggles to the actual audio state on entry — otherwise the panel reads
+    // "ON" while nothing is sounding (carry-over from the scales block where
+    // fadeDrone silenced things).
+    if (!AUDIO.droneNode && SETTINGS.drone_on) SETTINGS.drone_on = false;
+    if (!AUDIO.metroPlaying && SETTINGS.metro_on) SETTINGS.metro_on = false;
+
     logEvent(pieceKey+'_open', { chunk: chunkLabel, durSec });
 
     root.appendChild(el('div',{class:'band-top'},[
@@ -1679,39 +1692,31 @@ function screenPieceBlock(pieceKey, piece, durSec, nextFn) {
       el('div',{class:'timer', id:'timer'}, fmtSec(remaining)),
     ]));
     const body = el('div',{class:'body stack'}); root.appendChild(body);
+
+    body.appendChild(buildAudioPanel({
+      dronePc,
+      droneLabel: droneRoot || '',
+      onTempoChange: bpm => logEvent('tempo_change', { bpm, block: pieceKey }),
+      compact: true,
+    }));
+
     if (prior.length) {
-      body.appendChild(el('h2',{style:'font-size:15px;letter-spacing:.06em;text-transform:uppercase;'}, 'Recent notes'));
-      const list = el('ul',{class:'bare stack'});
+      const list = el('ul',{class:'bare stack piece-notes'});
       prior.forEach(n => list.appendChild(el('li',{class:'row',style:'gap:8px;align-items:flex-start;'},[
         el('span',{class:'note-tag ' + (n.tag||'')}, (n.tag||'note').slice(0,8)),
-        el('span',{}, `${n.date} — ${n.text}`)
+        el('span',{class:'piece-note-text'}, `${n.date.slice(5)} — ${n.text}`)
       ])));
       body.appendChild(list);
-      body.appendChild(el('button',{class:'chip', onclick: async ()=>{
+      body.appendChild(el('button',{class:'chip', style:'align-self:flex-start;', onclick: async ()=>{
         const all = await chunkNotes(pieceKey, chunkLabel);
         const txt = all.map(n=>`${n.date} [${n.tag||'note'}]: ${n.text}`).join('\n\n') || 'No notes.';
         const pre = el('pre',{style:'white-space:pre-wrap;font:inherit;font-size:14px;max-height:50vh;overflow:auto;'}, txt);
         await modal({ title:'All notes', content: pre, buttons:[{label:'Close', value:true, primary:true}] });
       }}, 'Show all'));
     } else {
-      body.appendChild(el('p',{class:'dim'}, 'No prior notes on this chunk.'));
+      body.appendChild(el('p',{class:'dim',style:'font-size:13px;'}, 'No prior notes on this chunk.'));
     }
-    body.appendChild(el('div',{class:'row wrap'},[
-      (() => { const b = el('button',{class:'chip'}, `Drone ${droneRoot}: off`);
-        b.addEventListener('click', ()=>{
-          droneOn = !droneOn; b.textContent = `Drone ${droneRoot}: ${droneOn?'on':'off'}`;
-          if (droneOn) AUDIO.startDrone(NOTE_TO_PC[droneRoot]||0);
-          else AUDIO.fadeDrone(300);
-          logEvent('piece_drone_toggle', { pieceKey, on: droneOn });
-        }); return b; })(),
-      (() => { const b = el('button',{class:'chip'}, `Metronome: off`);
-        b.addEventListener('click', ()=>{
-          metroOn = !metroOn; b.textContent = `Metronome: ${metroOn?'on':'off'}`;
-          if (metroOn) AUDIO.startMetronome(60); else AUDIO.stopMetronome();
-          logEvent('piece_metro_toggle', { pieceKey, on: metroOn });
-        }); return b; })(),
-      el('button',{class:'chip', onclick: openDrawer}, 'Audio'),
-    ]));
+
     const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner'}, 'Start')]);
     const endBtn = el('button',{class:'chip'}, 'End early');
     startBtn.addEventListener('click', () => {

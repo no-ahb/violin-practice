@@ -210,6 +210,23 @@ ul.bare { list-style: none; }
 .tempo-display { font-family: 'Instrument Sans', 'Inter', sans-serif; font-size: 44px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
 .tempo-label { font-size: 11px; letter-spacing: .28em; opacity: .65; margin-top: 2px; }
 
+/* Compact audio panel — used in Adagio/Fuga where notes need to share the
+   page. Drone + metro side-by-side; smaller toggles and tempo controls. */
+.audio-panel.compact { gap: 8px; }
+.audio-panel.compact .ap-toggle.big-toggle { min-height: 64px; padding: 8px 12px; }
+.audio-panel.compact .ap-toggle .ap-label { font-size: 10px; }
+.audio-panel.compact .ap-toggle .ap-value { font-size: 22px; }
+.audio-panel.compact .ap-toggle .ap-state { font-size: 11px; padding: 4px 8px; border-width: 1.5px; }
+.audio-panel.compact .tempo-btn { min-width: 56px; min-height: 56px; font-size: 26px; }
+.audio-panel.compact .tempo-stack { padding: 4px; }
+.audio-panel.compact .tempo-display { font-size: 30px; }
+.audio-panel.compact .tempo-label { font-size: 10px; margin-top: 0; }
+
+/* Piece-block recent-notes — single-line, dim, tight. No header. */
+.piece-notes { gap: 6px; }
+.piece-notes li { font-size: 13px; line-height: 1.3; opacity: 0.85; }
+.piece-note-text { display: block; }
+
 /* ---------- Scales-technical layout ---------- */
 .step-counter {
   font-family: 'Instrument Sans', 'Inter', sans-serif;
