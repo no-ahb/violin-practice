@@ -390,6 +390,8 @@ class AudioEngine {
   async startMetronome(bpm, accentEvery=0) {
     await this.resume();
     this.metroBpm = bpm;
+    // If already running, just retune; don't spawn a second tick loop.
+    if (this.metroPlaying) return;
     this.metroPlaying = true;
     if (!this.ctx) return;
     const ctx = this.ctx;
@@ -1159,7 +1161,6 @@ function buildAudioPanel({ dronePc, droneLabel, onTempoChange }) {
   const metroRow = el('div',{class:'ap-row metro-row'});
   const metroToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.metro_on?'on':'off')}, [
     el('div',{class:'ap-label'}, 'Metronome'),
-    el('div',{class:'ap-value', id:'apMetroVal'}, `${SESSION?SESSION.tempo:60} bpm`),
     el('div',{class:'ap-state', id:'apMetroState'}, SETTINGS.metro_on ? 'ON' : 'OFF'),
   ]);
   metroToggle.addEventListener('click', () => {
@@ -1189,7 +1190,6 @@ function buildAudioPanel({ dronePc, droneLabel, onTempoChange }) {
     SESSION.tempo = Math.max(30, Math.min(220, SESSION.tempo + delta));
     AUDIO.setBpm(SESSION.tempo);
     $('#tempoDisplay').textContent = SESSION.tempo;
-    const mv = $('#apMetroVal'); if (mv) mv.textContent = `${SESSION.tempo} bpm`;
     onTempoChange && onTempoChange(SESSION.tempo);
   }
   tempoMinus.addEventListener('click', ()=>changeTempo(-2));
@@ -2226,27 +2226,95 @@ function screenSettings() {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `practice-log-${isoDate()}.txt`; a.click();
     }}, 'Download logs'));
     body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (await askConfirm('Clear logs?', 'Local action log will be erased.', {okLabel:'Clear',danger:true})){ await kvSet('logs',[]); toast('Logs cleared'); } }}, 'Clear logs'));
-    body.appendChild(el('button',{class:'chip', onclick: exportAll}, 'Export JSON'));
+    body.appendChild(el('button',{class:'chip', onclick: exportAll}, 'Export to repo'));
     body.appendChild(el('button',{class:'chip', onclick: importAll}, 'Import JSON'));
+    if ('showDirectoryPicker' in window) {
+      body.appendChild(el('button',{class:'chip', onclick: relinkRepoDir}, 'Re-link repo folder'));
+    }
     body.appendChild(el('button',{class:'chip', onclick: async ()=>{ if (await askConfirm('Wipe all local data?', 'This deletes settings, sessions, recordings, chunks, patches and logs. Cannot be undone.', {okLabel:'Wipe everything', danger:true})) { indexedDB.deleteDatabase(DB_NAME); localStorage.clear(); location.reload(); } }}, 'Wipe all data'));
     body.appendChild(el('p',{class:'dim',style:'margin-top:16px;'}, `v1 · ${SESSION_COUNT_CACHE} sessions completed.`));
   });
 }
 
-async function exportAll() {
-  const data = {
+// ---------- Export / import ----------
+// Export bundles everything in IDB except recording audio blobs. Recording metadata
+// (annotations, durations, tags) is included; the audio itself stays on the device.
+async function buildExportPayload() {
+  await flushLogs();
+  return {
+    exportedAt: new Date().toISOString(),
     settings: SETTINGS,
     sessions: await idbAll('sessions'),
     chunks: await idbAll('chunks'),
     patches: await idbAll('patches'),
     recordings: (await idbAll('recordings')).map(r => ({...r, blob: undefined})),
+    logs: (await kvGet('logs')) || [],
   };
-  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+}
+
+// Persistent FileSystemDirectoryHandle for the repo root. First-time grant via
+// showDirectoryPicker; survives reloads in IDB. iOS Safari etc. don't have this
+// API, so we fall back to download.
+async function getRepoDirHandle() {
+  const stored = await kvGet('repoDirHandle');
+  if (!stored || !stored.queryPermission) return null;
+  const opts = { mode: 'readwrite' };
+  if (await stored.queryPermission(opts) === 'granted') return stored;
+  if (await stored.requestPermission(opts) === 'granted') return stored;
+  return null;
+}
+
+async function pickRepoDir() {
+  if (!('showDirectoryPicker' in window)) return null;
+  try {
+    const h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'violin-practice-repo' });
+    await kvSet('repoDirHandle', h);
+    return h;
+  } catch (e) {
+    return null; // user cancelled
+  }
+}
+
+async function writeJsonToRepo(filename, json) {
+  let dir = await getRepoDirHandle();
+  if (!dir) dir = await pickRepoDir();
+  if (!dir) return false;
+  const sub = await dir.getDirectoryHandle('practice-log', { create: true });
+  const file = await sub.getFileHandle(filename, { create: true });
+  const w = await file.createWritable();
+  await w.write(json);
+  await w.close();
+  return true;
+}
+
+async function exportAll() {
+  const data = await buildExportPayload();
+  const json = JSON.stringify(data, null, 2);
+  // Try direct write to repo first (Chromium desktop). Falls back to download.
+  if ('showDirectoryPicker' in window) {
+    try {
+      if (await writeJsonToRepo('practice-log.json', json)) {
+        toast('Saved to practice-log/practice-log.json — commit when ready.');
+        return;
+      }
+    } catch (e) {
+      console.warn('FS Access write failed, falling back to download:', e);
+    }
+  }
+  const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `practice-export-${isoDate()}.json`;
+  a.download = 'practice-log.json';
   a.click();
+  toast('Downloaded — drop in practice-log/ and commit.');
 }
+
+async function relinkRepoDir() {
+  await idbDel('kv', 'repoDirHandle');
+  const h = await pickRepoDir();
+  toast(h ? 'Repo folder linked.' : 'No folder picked.');
+}
+
 function importAll() {
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json';
   inp.onchange = async () => {
@@ -2259,6 +2327,7 @@ function importAll() {
       if (data.chunks) for (const c of data.chunks) await idbSet('chunks', null, c);
       if (data.patches) for (const p of data.patches) await idbSet('patches', null, p);
       if (data.recordings) for (const r of data.recordings) await idbSet('recordings', null, r);
+      if (data.logs) await kvSet('logs', data.logs);
       toast('Imported');
       await refreshSessionCount();
     } catch (e) { alert('Import failed: '+e.message); }
@@ -2309,12 +2378,114 @@ function screenStats() {
     body.appendChild(el('div',{class:'stack'},[el('label',{},'Feeling · last 7'), spark]));
     const list = el('div',{class:'list'});
     sessions.slice().reverse().slice(0,40).forEach(s => {
-      list.appendChild(el('div',{class:'item'},[
+      const noteCount = (s.notes||[]).length + (s.finalNote ? 1 : 0);
+      const row = el('div',{class:'item', style:'cursor:pointer;', onclick: ()=>screenSessionDetail(s.id)},[
         el('div',{}, `${s.date} · ${s.tonic}${s.minor?'m':'M'}${s.light?' · light':''}`),
-        el('div',{class:'dim'}, `feel ${s.feeling||'—'}`),
-      ]));
+        el('div',{class:'dim'}, `feel ${s.feeling||'—'} · ${noteCount} note${noteCount===1?'':'s'} ›`),
+      ]);
+      list.appendChild(row);
     });
     body.appendChild(list);
+  });
+}
+
+async function screenSessionDetail(sessionId) {
+  CURRENT_SCREEN = 'session_detail';
+  render(async (root) => {
+    const s = await idbGet('sessions', sessionId);
+    if (!s) {
+      root.appendChild(el('div',{class:'band-top'},[
+        el('div',{},[el('div',{class:'eyebrow'},'Session'), el('h1',{}, 'Not found')]),
+        el('button',{class:'icon', onclick: screenStats}, '←'),
+      ]));
+      return;
+    }
+    const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][s.dow ?? new Date(s.date).getDay()];
+    const keyName = `${s.tonic}${s.minor?' minor':' major'}`;
+    root.appendChild(el('div',{class:'band-top'},[
+      el('div',{},[
+        el('div',{class:'eyebrow'}, `${dayName} · ${s.date}`),
+        el('h1',{}, `Week ${s.week} · ${keyName}${s.light?' · light':''}`),
+      ]),
+      el('button',{class:'icon', onclick: screenStats}, '←'),
+    ]));
+    const body = el('div',{class:'body stack'}); root.appendChild(body);
+
+    // Session-level summary
+    body.appendChild(el('p',{class:'dim'},
+      `Active ${fmtMs(s.activeMsFinal||s.activeMs||0)} · Feeling ${s.feeling||'—'} · Tempo ${s.tempo||'—'}`));
+
+    // Blocks
+    const blk = s.blocks || {};
+    const blockLines = [];
+    if (blk.scales) {
+      const t = blk.scales.technical, m = blk.scales.modal, c = blk.scales.chordscale;
+      const parts = [];
+      if (t?.done) parts.push(`technical${t.tempoEnd?` (${t.tempoEnd} bpm)`:''}`);
+      if (m?.done) parts.push(`modal${m.mode?` · ${m.mode}`:''}`);
+      if (c?.done) parts.push(`chord-scale${c.progression?` · ${c.progression}`:''}`);
+      if (parts.length) blockLines.push(`Scales — ${parts.join(', ')}`);
+    }
+    if (blk.adagio?.done) blockLines.push(`Adagio — ${blk.adagio.chunk||''}${blk.adagio.mastered?' ✓ mastered':''}${blk.adagio.recorded?' · rec':''}`);
+    if (blk.fuga?.done)   blockLines.push(`Fuga — ${blk.fuga.chunk||''}${blk.fuga.mastered?' ✓ mastered':''}${blk.fuga.recorded?' · rec':''}`);
+    if (blk.improv?.done) blockLines.push(`Improv — ${blk.improv.system?'system':'acoustic'}${blk.improv.patchVersion?` · patch v${blk.improv.patchVersion}`:''}`);
+    if (blockLines.length) {
+      body.appendChild(el('div',{class:'rule'}));
+      body.appendChild(el('h2',{}, 'Blocks'));
+      blockLines.forEach(l => body.appendChild(el('p',{class:'dim',style:'margin:2px 0;'}, l)));
+    }
+
+    // End-of-day freeform
+    if (s.finalNote && s.finalNote.trim()) {
+      body.appendChild(el('div',{class:'rule'}));
+      body.appendChild(el('h2',{}, 'How today felt'));
+      body.appendChild(el('p',{style:'white-space:pre-wrap;'}, s.finalNote));
+    }
+
+    // In-session notes (improv timestamped, transitions, etc.)
+    const notes = (s.notes||[]).slice().sort((a,b)=>(a.time||0)-(b.time||0));
+    if (notes.length) {
+      body.appendChild(el('div',{class:'rule'}));
+      body.appendChild(el('h2',{}, `Notes (${notes.length})`));
+      notes.forEach(n => {
+        const stamp = n.atSec!=null ? `+${fmtSec(n.atSec)}` : (n.time ? new Date(n.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '');
+        const tag = n.tag ? ` · ${n.tag}` : '';
+        body.appendChild(el('div',{class:'item'},[
+          el('div',{class:'dim',style:'font-size:12px;'}, `${(n.block||'').toUpperCase()}${tag} · ${stamp}`),
+          el('div',{style:'white-space:pre-wrap;'}, n.text||''),
+        ]));
+      });
+    }
+
+    // Adagio/Fuga chunk notes written on this session's date
+    const chunks = await idbAll('chunks');
+    const sessionDate = s.date;
+    const chunkNotesToday = [];
+    chunks.forEach(c => (c.notes||[]).forEach(n => { if (n.date === sessionDate) chunkNotesToday.push({...n, pieceKey:c.pieceKey, label:c.label}); }));
+    if (chunkNotesToday.length) {
+      body.appendChild(el('div',{class:'rule'}));
+      body.appendChild(el('h2',{}, `Chunk notes today (${chunkNotesToday.length})`));
+      chunkNotesToday.sort((a,b)=>(a.time||0)-(b.time||0)).forEach(n => {
+        const tag = n.tag ? ` · ${n.tag}` : '';
+        body.appendChild(el('div',{class:'item'},[
+          el('div',{class:'dim',style:'font-size:12px;'}, `${(n.pieceKey||'').toUpperCase()} · ${n.label||''}${tag}`),
+          el('div',{style:'white-space:pre-wrap;'}, n.text||''),
+        ]));
+      });
+    }
+
+    // Recordings linked to this session
+    const recs = (await idbAll('recordings')).filter(r => r.sessionId === s.id || r.date === s.date);
+    if (recs.length) {
+      body.appendChild(el('div',{class:'rule'}));
+      body.appendChild(el('h2',{}, `Recordings (${recs.length})`));
+      recs.forEach(r => {
+        body.appendChild(el('div',{class:'item'},[
+          el('div',{}, `${r.block||''}${r.key?` · ${r.key}`:''} · ${fmtSec(r.durationSec||0)}`),
+          el('div',{class:'dim',style:'font-size:12px;'}, `${(r.annotations||[]).length} annotation${(r.annotations||[]).length===1?'':'s'}${r.starred?' · ★':''}`),
+        ]));
+      });
+    }
   });
 }
 
