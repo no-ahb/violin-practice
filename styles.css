@@ -269,23 +269,29 @@ ul.bare { list-style: none; }
 .meta-value { font-size: 16px; font-weight: 500; letter-spacing: -0.005em; }
 
 /* ---------- Chord-scale ---------- */
-.cs-intro {
-  border: 1px solid currentColor; border-color: rgba(255,255,255,0.22);
-  padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+.cs-state {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 12px;
+  border-left: 2px solid currentColor;
 }
-.cs-intro-body { font-size: 15px; line-height: 1.45; opacity: .9; }
+.cs-state-loop { font-size: 11px; letter-spacing: .26em; text-transform: uppercase; font-weight: 600; opacity: .65; }
+.cs-state-instr { font-size: 14px; line-height: 1.35; opacity: .92; }
 .cs-controls { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 8px; }
 .cs-tempo-row { display: flex; gap: 10px; align-items: stretch; }
 .cs-tempo { flex: 1; }
 .cs-bpc { display: flex; flex-direction: column; gap: 8px; }
 .cs-now {
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
   padding: 12px 14px;
   border: 1.5px solid currentColor; border-color: rgba(255,255,255,0.28);
 }
 .cs-chord {
   font-size: clamp(40px, 11vw, 64px); font-weight: 700; letter-spacing: -0.03em;
   line-height: 1;
+}
+.cs-roman {
+  font-size: 14px; letter-spacing: .14em; text-transform: uppercase;
+  font-weight: 600; opacity: .65; font-feature-settings: "ss01";
 }
 .cs-scale {
   font-size: 14px; letter-spacing: .12em; text-transform: uppercase;
@@ -294,11 +300,17 @@ ul.bare { list-style: none; }
 .cs-chart-wrap { display: flex; flex-direction: column; gap: 8px; }
 .chord-chart.pretty { gap: 8px; }
 .chord-chart.pretty .chord {
-  border-width: 1.5px; padding: 10px 12px; font-size: 16px; opacity: .35;
+  border-width: 1.5px; padding: 8px 10px 6px; font-size: 16px; opacity: .35;
   letter-spacing: -0.005em; transition: opacity 160ms ease, background 160ms ease;
+  display: flex; flex-direction: column; gap: 2px; text-align: center;
 }
 .chord-chart.pretty .chord.next { opacity: .65; }
 .chord-chart.pretty .chord.active { opacity: 1; }
+.chord-chart.pretty .chord-name { font-size: 16px; font-weight: 700; }
+.chord-chart.pretty .chord-roman {
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  font-weight: 600; opacity: .8;
+}
 
 /* ---------- 1–5 scale row ---------- */
 .scale-row { display: flex; gap: 8px; }

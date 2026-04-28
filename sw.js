@@ -1,4 +1,4 @@
-const CACHE = 'practice-v12';
+const CACHE = 'practice-v13';
 const ASSETS = [
   './',
   './index.html',

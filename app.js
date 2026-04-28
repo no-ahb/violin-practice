@@ -113,45 +113,45 @@ function dayChordProgression(dow, minor, tonicPc) {
   };
   if (minor) {
     if (dow===1) return {label:'ii-V-i (functional)', bars:[
-      {chord:`${NOTE_NAMES[(T+9)%12]}m7♭5`, root:(T+9)%12, tones:[0,3,6,10], scale:mkScale((T+9)%12,'locrian','locrian')},
-      {chord:`${NOTE_NAMES[(T+2)%12]}7 (phryg-dom)`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'phrygDom','phrygian dominant')},
-      {chord:`${NOTE_NAMES[T]}m7`, root:T, tones:[0,3,7,10], scale:mkScale(T,'dorian','dorian')},
+      {chord:`${NOTE_NAMES[(T+9)%12]}m7♭5`, root:(T+9)%12, tones:[0,3,6,10], scale:mkScale((T+9)%12,'locrian','locrian'), roman:'iiø7'},
+      {chord:`${NOTE_NAMES[(T+2)%12]}7 (phryg-dom)`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'phrygDom','phrygian dominant'), roman:'V7♭9'},
+      {chord:`${NOTE_NAMES[T]}m7`, root:T, tones:[0,3,7,10], scale:mkScale(T,'dorian','dorian'), roman:'i7'},
     ]};
     if (dow===2) return {label:'Extended functional', bars:[
-      {chord:`${NOTE_NAMES[(T+5)%12]}m7`, root:(T+5)%12, tones:[0,3,7,10], scale:mkScale((T+5)%12,'dorian','dorian')},
-      {chord:`${NOTE_NAMES[(T+9)%12]}m7♭5`, root:(T+9)%12, tones:[0,3,6,10], scale:mkScale((T+9)%12,'locrian','locrian')},
-      {chord:`${NOTE_NAMES[(T+2)%12]}7`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'phrygDom','phrygian dominant')},
-      {chord:`${NOTE_NAMES[T]}m7`, root:T, tones:[0,3,7,10], scale:mkScale(T,'dorian','dorian')},
+      {chord:`${NOTE_NAMES[(T+5)%12]}m7`, root:(T+5)%12, tones:[0,3,7,10], scale:mkScale((T+5)%12,'dorian','dorian'), roman:'iv7'},
+      {chord:`${NOTE_NAMES[(T+9)%12]}m7♭5`, root:(T+9)%12, tones:[0,3,6,10], scale:mkScale((T+9)%12,'locrian','locrian'), roman:'iiø7'},
+      {chord:`${NOTE_NAMES[(T+2)%12]}7`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'phrygDom','phrygian dominant'), roman:'V7♭9'},
+      {chord:`${NOTE_NAMES[T]}m7`, root:T, tones:[0,3,7,10], scale:mkScale(T,'dorian','dorian'), roman:'i7'},
     ]};
     if (dow===3) return {label:'Modal vamp — Gm7 (dorian)', bars:[
-      {chord:`${NOTE_NAMES[T]}m7`, root:T, tones:[0,3,7,10], scale:mkScale(T,'dorian','dorian')},
+      {chord:`${NOTE_NAMES[T]}m7`, root:T, tones:[0,3,7,10], scale:mkScale(T,'dorian','dorian'), roman:'i7 · dorian'},
     ]};
     if (dow===4) return {label:'Modal vamp — Gm7♭9 (phrygian)', bars:[
-      {chord:`${NOTE_NAMES[T]}m7♭9`, root:T, tones:[0,3,7,10,13], scale:mkScale(T,'phrygian','phrygian')},
+      {chord:`${NOTE_NAMES[T]}m7♭9`, root:T, tones:[0,3,7,10,13], scale:mkScale(T,'phrygian','phrygian'), roman:'i7♭9 · phrygian'},
     ]};
     if (dow===5) return {label:'Modal vamp — Gmaj7#11 (lydian)', bars:[
-      {chord:`${NOTE_NAMES[T]}maj7#11`, root:T, tones:[0,4,7,11,6], scale:mkScale(T,'lydian','lydian')},
+      {chord:`${NOTE_NAMES[T]}maj7#11`, root:T, tones:[0,4,7,11,6], scale:mkScale(T,'lydian','lydian'), roman:'Imaj7#11 · lydian'},
     ]};
   } else {
     if (dow===1) return {label:'ii-V-I (functional)', bars:[
-      {chord:`${NOTE_NAMES[(T+9)%12]}m7`, root:(T+9)%12, tones:[0,3,7,10], scale:mkScale((T+9)%12,'dorian','dorian')},
-      {chord:`${NOTE_NAMES[(T+2)%12]}7`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'mixolydian','mixolydian')},
-      {chord:`${NOTE_NAMES[T]}maj7`, root:T, tones:[0,4,7,11], scale:mkScale(T,'ionian','ionian')},
+      {chord:`${NOTE_NAMES[(T+9)%12]}m7`, root:(T+9)%12, tones:[0,3,7,10], scale:mkScale((T+9)%12,'dorian','dorian'), roman:'iim7'},
+      {chord:`${NOTE_NAMES[(T+2)%12]}7`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'mixolydian','mixolydian'), roman:'V7'},
+      {chord:`${NOTE_NAMES[T]}maj7`, root:T, tones:[0,4,7,11], scale:mkScale(T,'ionian','ionian'), roman:'Imaj7'},
     ]};
     if (dow===2) return {label:'Extended functional', bars:[
-      {chord:`${NOTE_NAMES[(T+4)%12]}m7`, root:(T+4)%12, tones:[0,3,7,10], scale:mkScale((T+4)%12,'phrygian','phrygian')},
-      {chord:`${NOTE_NAMES[(T+9)%12]}m7`, root:(T+9)%12, tones:[0,3,7,10], scale:mkScale((T+9)%12,'aeolian','aeolian')},
-      {chord:`${NOTE_NAMES[(T+2)%12]}7`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'mixolydian','mixolydian')},
-      {chord:`${NOTE_NAMES[T]}maj7`, root:T, tones:[0,4,7,11], scale:mkScale(T,'ionian','ionian')},
+      {chord:`${NOTE_NAMES[(T+4)%12]}m7`, root:(T+4)%12, tones:[0,3,7,10], scale:mkScale((T+4)%12,'phrygian','phrygian'), roman:'iiim7'},
+      {chord:`${NOTE_NAMES[(T+9)%12]}m7`, root:(T+9)%12, tones:[0,3,7,10], scale:mkScale((T+9)%12,'aeolian','aeolian'), roman:'vim7'},
+      {chord:`${NOTE_NAMES[(T+2)%12]}7`, root:(T+2)%12, tones:[0,4,7,10], scale:mkScale((T+2)%12,'mixolydian','mixolydian'), roman:'V7'},
+      {chord:`${NOTE_NAMES[T]}maj7`, root:T, tones:[0,4,7,11], scale:mkScale(T,'ionian','ionian'), roman:'Imaj7'},
     ]};
     if (dow===3) return {label:'Modal vamp — maj7 (ionian)', bars:[
-      {chord:`${NOTE_NAMES[T]}maj7`, root:T, tones:[0,4,7,11], scale:mkScale(T,'ionian','ionian')},
+      {chord:`${NOTE_NAMES[T]}maj7`, root:T, tones:[0,4,7,11], scale:mkScale(T,'ionian','ionian'), roman:'Imaj7 · ionian'},
     ]};
     if (dow===4) return {label:'Modal vamp — maj7#11 (lydian)', bars:[
-      {chord:`${NOTE_NAMES[T]}maj7#11`, root:T, tones:[0,4,7,11,6], scale:mkScale(T,'lydian','lydian')},
+      {chord:`${NOTE_NAMES[T]}maj7#11`, root:T, tones:[0,4,7,11,6], scale:mkScale(T,'lydian','lydian'), roman:'Imaj7#11 · lydian'},
     ]};
     if (dow===5) return {label:'Modal vamp — 7 (mixolydian)', bars:[
-      {chord:`${NOTE_NAMES[T]}7`, root:T, tones:[0,4,7,10], scale:mkScale(T,'mixolydian','mixolydian')},
+      {chord:`${NOTE_NAMES[T]}7`, root:T, tones:[0,4,7,10], scale:mkScale(T,'mixolydian','mixolydian'), roman:'I7 · mixolydian'},
     ]};
   }
   return {label:'Rest', bars:[]};
@@ -432,26 +432,77 @@ class AudioEngine {
   setBpm(b){ this.metroBpm = b; }
 
   // --- Chord playback for chord-scale block
+  // Voice-led chord placement. Each new chord's pitch classes are placed at
+  // the octave that minimizes movement from the previous chord's voicing —
+  // common tones stay put, others move by smallest interval. Greedy match,
+  // not Hungarian-optimal, but good enough for 4–5 voices.
+  voicePitches(rootPc, tones) {
+    const newPcs = tones.map(s => ((rootPc + s) % 12 + 12) % 12);
+    const prev = this.prevChordPitches;
+    let pitches;
+    if (!prev || prev.length === 0) {
+      // First chord: close stack starting near C4 (MIDI 60).
+      let last = 59;
+      pitches = newPcs.map(pc => {
+        let m = 12 * Math.floor(last / 12) + pc;
+        while (m <= last) m += 12;
+        last = m;
+        return m;
+      });
+    } else {
+      const used = new Set();
+      pitches = newPcs.map(pc => {
+        let bestMidi = 60 + pc;
+        let bestDist = Infinity;
+        let bestPrevIdx = -1;
+        for (let i = 0; i < prev.length; i++) {
+          if (used.has(i)) continue;
+          const oct = Math.round((prev[i] - pc) / 12);
+          const m = 12 * oct + pc;
+          const d = Math.abs(m - prev[i]);
+          if (d < bestDist) { bestDist = d; bestMidi = m; bestPrevIdx = i; }
+        }
+        if (bestPrevIdx >= 0) used.add(bestPrevIdx);
+        return bestMidi;
+      });
+    }
+    // Clamp to a sensible range (D3..G#5) without disturbing pitch class.
+    pitches = pitches.map(m => {
+      while (m < 50) m += 12;
+      while (m > 80) m -= 12;
+      return m;
+    });
+    this.prevChordPitches = pitches;
+    return pitches;
+  }
+  resetChordVoicing() { this.prevChordPitches = null; }
+
   playChord(rootPc, tones, when, durSec, modal=false) {
     if (!this.ctx) return;
-    const base = this.pcToFreq(rootPc, 4);
-    tones.forEach((semi, i) => {
-      const f = base * Math.pow(2, semi/12);
+    const pitches = this.voicePitches(rootPc, tones);
+    const ref = SETTINGS.referencePitch || 440;
+    pitches.forEach(midi => {
+      const f = ref * Math.pow(2, (midi - 69) / 12);
       const o = this.ctx.createOscillator();
       const g = this.ctx.createGain();
       o.type = modal ? 'sine' : 'triangle';
       o.frequency.value = f;
-      const peak = modal ? 0.12 : 0.18;
-      const atk = modal ? 0.25 : 0.01;
-      const dec = modal ? 0.4 : 0.2;
-      const sus = modal ? 0.18 : 0.06;
-      const rel = modal ? 0.6 : 0.3;
+      // Envelope: punchy attack, brief decay to a high sustain that holds
+      // through durSec, then a short release. Replaces the prior decay-heavy
+      // shape that made chord hits sound one-shot rather than sustained.
+      const peak = modal ? 0.10 : 0.14;
+      const sus  = modal ? 0.085 : 0.10;
+      const atk  = modal ? 0.30 : 0.015;
+      const decToSus = modal ? 0.20 : 0.10;
+      const rel = Math.min(modal ? 0.40 : 0.18, durSec * 0.25);
       g.gain.setValueAtTime(0.0001, when);
-      g.gain.linearRampToValueAtTime(peak, when+atk);
-      g.gain.linearRampToValueAtTime(sus, when+atk+dec);
-      g.gain.linearRampToValueAtTime(0.0001, when+durSec+rel);
+      g.gain.linearRampToValueAtTime(peak, when + atk);
+      g.gain.linearRampToValueAtTime(sus, when + atk + decToSus);
+      g.gain.setValueAtTime(sus, Math.max(when + atk + decToSus, when + durSec - rel));
+      g.gain.linearRampToValueAtTime(0.0001, when + durSec);
       o.connect(g).connect(this.chordGain);
-      o.start(when); o.stop(when+durSec+rel+0.05);
+      o.start(when);
+      o.stop(when + durSec + 0.05);
     });
   }
   stopAll(){ this.stopDrone(); this.stopMetronome(); }
@@ -1483,16 +1534,13 @@ function screenScalesChordScale() {
 
     const body = el('div',{class:'body stack'}); root.appendChild(body);
 
-    // Intro / explainer — only before start
-    const intro = el('div',{class:'cs-intro', id:'csIntro'}, [
-      el('div',{class:'menu-eyebrow'}, 'How this works'),
-      el('div',{class:'cs-intro-body'},
-        isModal
-          ? `One chord, one scale. Tap Start — the chord loops in the background. Improvise on the scale shown below; land on chord tones, lean into the characteristic note.`
-          : `The progression below loops at the chosen tempo. Each chord shows the matching scale and notes. Tap Start, listen for a bar, then play the scale on each chord — clean changes through the bar lines.`
-      ),
+    // State strip — replaces the wordy intro after Start. Loop counter +
+    // current instruction (Listen on loop 1, Improvise after).
+    const stateStrip = el('div',{class:'cs-state', id:'csState'}, [
+      el('div',{class:'cs-state-loop', id:'csLoopLbl'}, isModal ? 'Modal vamp · sustained' : 'Functional · pulsed each bar'),
+      el('div',{class:'cs-state-instr', id:'csInstr'}, 'Tap Start · 1 listen-loop, then improvise'),
     ]);
-    body.appendChild(intro);
+    body.appendChild(stateStrip);
 
     // Audio + tempo controls (chord-loop tempo, separate from session metronome)
     const ctrl = el('div',{class:'cs-controls'});
@@ -1502,13 +1550,14 @@ function screenScalesChordScale() {
     ]);
     const tMinus = el('button',{class:'tempo-btn'}, '−');
     const tPlus  = el('button',{class:'tempo-btn'}, '+');
-    tMinus.addEventListener('click', ()=>{ loopTempo = Math.max(40, loopTempo-2); SETTINGS.chordLoopTempo = loopTempo; kvSet('settings', SETTINGS); $('#csTempo').textContent = loopTempo; });
-    tPlus .addEventListener('click', ()=>{ loopTempo = Math.min(180, loopTempo+2); SETTINGS.chordLoopTempo = loopTempo; kvSet('settings', SETTINGS); $('#csTempo').textContent = loopTempo; });
+    tMinus.addEventListener('click', ()=>{ loopTempo = Math.max(40, loopTempo-2); SETTINGS.chordLoopTempo = loopTempo; kvSet('settings', SETTINGS); $('#csTempo').textContent = loopTempo; AUDIO.setBpm(loopTempo); });
+    tPlus .addEventListener('click', ()=>{ loopTempo = Math.min(180, loopTempo+2); SETTINGS.chordLoopTempo = loopTempo; kvSet('settings', SETTINGS); $('#csTempo').textContent = loopTempo; AUDIO.setBpm(loopTempo); });
     ctrl.appendChild(el('div',{class:'cs-tempo-row'},[tMinus, tempoBlock, tPlus]));
 
-    // Bars per chord
+    // Bars per chord — pacing of chord changes, not loop count. Hint clarifies
+    // since session-1 feedback flagged the ambiguity.
     const bpcRow = el('div',{class:'cs-bpc'},[
-      el('div',{class:'menu-eyebrow'}, 'Bars per chord'),
+      el('div',{class:'menu-eyebrow'}, 'Bars per chord — chord-change pacing'),
       el('div',{class:'row wrap', id:'bpcRow'},
         [1,2,4,8].map(n => {
           const b = el('button',{class:'chip ' + (n===barsPerChord?'primary':'')}, [el('span',{class:'inner'}, String(n))]);
@@ -1529,16 +1578,20 @@ function screenScalesChordScale() {
     const np = el('div',{class:'cs-now'}, [
       el('div',{class:'menu-eyebrow'}, 'Now playing'),
       el('div',{class:'cs-chord', id:'csChord'}, prog.bars[0].chord),
+      el('div',{class:'cs-roman', id:'csRoman'}, prog.bars[0].roman || ''),
       el('div',{class:'cs-scale', id:'csScale'}, ''),
       el('div',{class:'note-line', id:'csNotes'}, ''),
     ]);
     body.appendChild(np);
 
-    // Progression chart
+    // Progression chart — chord + roman beneath each
     if (!isModal) {
       const chart = el('div',{class:'chord-chart pretty', id:'csChart'});
       prog.bars.forEach((bar,i) => {
-        chart.appendChild(el('div',{class:'chord' + (i===0?' active':''), 'data-i':i}, bar.chord));
+        chart.appendChild(el('div',{class:'chord' + (i===0?' active':''), 'data-i':i},[
+          el('div',{class:'chord-name'}, bar.chord),
+          el('div',{class:'chord-roman'}, bar.roman || ''),
+        ]));
       });
       body.appendChild(el('div',{class:'cs-chart-wrap'},[
         el('div',{class:'menu-eyebrow'}, 'Progression'),
@@ -1566,6 +1619,7 @@ function screenScalesChordScale() {
       const i = chordIdx % prog.bars.length;
       const bar = prog.bars[i];
       $('#csChord').textContent = bar.chord;
+      const romanEl = $('#csRoman'); if (romanEl) romanEl.textContent = bar.roman || '';
       $('#csScale').textContent = bar.scale.name;
       $('#csNotes').textContent = bar.scale.notes.join('  ');
       const chartEl = $('#csChart');
@@ -1578,34 +1632,59 @@ function screenScalesChordScale() {
       }
     }
     refreshChord();
+    function refreshLoopLabel(loopIdx){
+      const lbl = $('#csLoopLbl'); const ins = $('#csInstr');
+      if (lbl) lbl.textContent = `Loop ${loopIdx+1}${isModal?' · sustained vamp':' · pulsed comping'}`;
+      if (ins) ins.textContent = loopIdx === 0 ? 'Listen — don\'t play. Hear where the changes fall.' : 'Improvise — clean scale switches across the bar lines.';
+    }
 
     async function begin(){
       running = true; paused = false;
       await AUDIO.resume();
       AUDIO.fadeDrone(200);
+      AUDIO.resetChordVoicing(); // start voice leading fresh
+      AUDIO.startMetronome(loopTempo); // chord-scale block always wants a click
       $('#csStartLbl').textContent = 'Pause';
-      const introEl = $('#csIntro'); if (introEl) introEl.style.display = 'none';
       logEvent('chordscale_begin', { tempo: loopTempo, bpc: barsPerChord });
 
       const secPerBar = 60/loopTempo * 4;
+      const barsPerLoop = prog.bars.length * barsPerChord;
       let nextBarAt = AUDIO.ctx.currentTime + 0.25;
       let bar = 0;
+      let lastLoopIdx = -1;
+      refreshLoopLabel(0);
       function sched() {
         if (!running || paused || finished) return;
         while (nextBarAt < AUDIO.ctx.currentTime + 0.6) {
           const ci = Math.floor(bar / barsPerChord) % prog.bars.length;
+          const chord = prog.bars[ci];
+          // Functional progression: pulse the chord on every bar — feel the
+          // harmonic rhythm. Modal vamp: schedule once per chord (which for
+          // a 1-chord vamp = once per loop), let the new envelope sustain.
+          if (isModal) {
+            if (bar % barsPerChord === 0) {
+              AUDIO.playChord(chord.root, chord.tones, nextBarAt, secPerBar * barsPerChord * 0.98, true);
+            }
+          } else {
+            AUDIO.playChord(chord.root, chord.tones, nextBarAt, secPerBar * 0.92, false);
+          }
+          // Visual chord update synced to audio playback time, not the
+          // pre-scheduling moment — otherwise the chart races ahead. Capture
+          // the current bar/loop index in the closure so the callback uses
+          // values from when the chord was scheduled, not from after `bar`
+          // has advanced inside the while loop.
+          const playAtMs = (nextBarAt - AUDIO.ctx.currentTime) * 1000;
           if (bar % barsPerChord === 0) {
-            const chord = prog.bars[ci];
-            AUDIO.playChord(chord.root, chord.tones, nextBarAt, secPerBar * barsPerChord * 0.95, isModal);
-            // Delay the visual update to fire when the chord actually starts
-            // sounding, not when it's pre-scheduled — otherwise the display
-            // races up to 0.6s ahead of the audio and the playing chord appears
-            // to vanish before its turn.
-            const playAtMs = (nextBarAt - AUDIO.ctx.currentTime) * 1000;
+            const loopIdxAtSched = Math.floor(bar / barsPerLoop);
+            const ciAtSched = ci;
             setTimeout(() => {
               if (!running || paused || finished) return;
-              chordIdx = ci;
+              chordIdx = ciAtSched;
               refreshChord();
+              if (loopIdxAtSched !== lastLoopIdx) {
+                lastLoopIdx = loopIdxAtSched;
+                refreshLoopLabel(loopIdxAtSched);
+              }
             }, Math.max(0, playAtMs));
           }
           nextBarAt += secPerBar;
@@ -1623,6 +1702,8 @@ function screenScalesChordScale() {
     function togglePause(){
       paused = !paused;
       $('#csStartLbl').textContent = paused ? 'Resume' : 'Pause';
+      if (paused) AUDIO.stopMetronome();
+      else AUDIO.startMetronome(loopTempo);
       logEvent('chordscale_pause', paused);
     }
     function finish(){
@@ -1630,6 +1711,7 @@ function screenScalesChordScale() {
       finished = true;
       clearInterval(mainTimer); clearTimeout(chordTimer);
       AUDIO.fadeDrone(200);
+      AUDIO.stopMetronome();
       SESSION.blocks.scales.chordscale = {done:true, progression: prog.label, secs: elapsedSec};
       persistSession();
       logEvent('chordscale_complete', { secs: elapsedSec });
@@ -1930,6 +2012,7 @@ function screenImprov() {
 
     const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'impStartLbl'}, 'Setup ready · Start')]);
     const noteBtn = el('button',{class:'chip', id:'noteBtn', disabled:true}, '+ Note');
+    const recBtn  = el('button',{class:'chip', id:'impRecBtn'}, 'Record');
     const doneBtn = el('button',{class:'chip'}, 'Done');
     startBtn.addEventListener('click', () => {
       if (finished) return;
@@ -1937,19 +2020,39 @@ function screenImprov() {
       else { paused = !paused; $('#impStartLbl').textContent = paused?'Resume':'Pause'; logEvent('improv_pause', paused); }
     });
     noteBtn.addEventListener('click', dropNote);
+    // Manual record toggle. Auto-recording was removed in response to
+    // session-1 feedback: the user wants control over when capture starts —
+    // setup time, false starts, and bow-noise warm-ups shouldn't end up in
+    // the recording.
+    recBtn.addEventListener('click', async () => {
+      if (!started) { toast('Tap Setup ready · Start first.'); return; }
+      if (RECORDER && RECORDER.state === 'recording') {
+        const r = await stopRecording();
+        recBtn.textContent = 'Record';
+        recBtn.classList.remove('primary');
+        toast('Saved ' + fmtSec(r?.durationSec || 0));
+      } else {
+        const ok = await startRecording({ block:'improv', system, patchVersion: patch?.version, date: isoDate(), longSession, constraint: system ? null : acousticConstraint });
+        if (ok) {
+          recBtn.textContent = 'Stop';
+          recBtn.classList.add('primary');
+          toast('Recording…');
+        } else {
+          toast('Mic denied');
+        }
+      }
+    });
     doneBtn.addEventListener('click', async () => {
       if (finished) return;
       const ok = await askConfirm('End improv early?', 'Stop the timer and go to wrap-up.', {okLabel:'End',cancelLabel:'Keep going'});
       if (ok) { remaining = 0; if (timerId) clearInterval(timerId); finish(); }
     });
-    root.appendChild(el('div',{class:'band-bottom'},[startBtn, noteBtn, doneBtn]));
+    root.appendChild(el('div',{class:'band-bottom'},[startBtn, noteBtn, recBtn, doneBtn]));
 
     async function go() {
       if (started) return;
       started = true;
       await AUDIO.resume();
-      const ok = await startRecording({ block: 'improv', system, patchVersion: patch?.version, date: isoDate(), longSession, constraint: system? null : acousticConstraint });
-      if (!ok) toast('Mic denied — recording off');
       $('#noteBtn').disabled = false;
       $('#impStartLbl').textContent = 'Pause';
       logEvent('improv_start', { durSec, system, longSession });
@@ -1982,7 +2085,7 @@ function screenImprov() {
     async function finish() {
       if (finished) return;
       finished = true;
-      const rec = await stopRecording();
+      const rec = (RECORDER && RECORDER.state === 'recording') ? await stopRecording() : null;
       logEvent('improv_timer_done', { rec: !!rec });
       screenImprovWrapUp({ rec, system, patch, longSession });
     }
