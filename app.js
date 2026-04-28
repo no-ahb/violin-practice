@@ -84,6 +84,20 @@ function droneDegree(dow, minor) {
 function dayBowing(dow) {
   return ['free/choice','sustained','detaché','slurred 4','slurred 8','free/choice','free/choice'][dow] || 'sustained';
 }
+// Default subdivision suggestion for each bowing — the "how many notes per bow"
+// question from session-1. Tempo-dependent in reality; these are reasonable
+// defaults at the practice tempo (60–80 bpm). Player can deviate and note it.
+function dayBowingDetail(dow) {
+  return [
+    'your choice — note what you played',
+    'long bow · half notes · 1 per stroke',     // Mon sustained
+    '♩ quarter notes · 1 per bow',              // Tue detaché
+    '♫ eighth notes · 4 per bow (1 beat per slur)',   // Wed slurred 4
+    '♬ sixteenth notes · 8 per bow (2 beats per slur)', // Thu slurred 8
+    'your choice — note what you played',       // Fri free
+    'your choice', 'your choice'
+  ][dow] || '';
+}
 function dayModalFocus(dow, minor) {
   // Week 1 (minor): Mon G dorian, Tue C dorian, Wed G phrygian, Thu D phrygian, Fri G locrian
   // Week 2 (major): Mon G lydian, Tue C lydian, Wed G mixolydian, Thu D mixolydian, Fri G aeolian
@@ -605,6 +619,30 @@ function el(tag, attrs={}, children=[]) {
   return e;
 }
 // ---------- Modal (replaces window.confirm / prompt / alert) ----------
+// Per-step note capture used inside scales screens. Skippable — Cancel returns
+// without writing anything. Saves to SESSION.notes with the originating block
+// + step context so the session-detail view can group them.
+async function dropStepNote(block, ctx={}) {
+  if (!SESSION) return;
+  const ta = el('textarea',{placeholder:'A quick thought…',style:'min-height:90px;'});
+  const wrap = el('div',{}); wrap.appendChild(ta);
+  const tagRow = el('div',{class:'row wrap',style:'gap:8px;margin-top:8px;'});
+  let tag = 'neutral';
+  ['worked',"didn't",'neutral'].forEach(t => {
+    const b = el('button',{class:'chip ' + (t===tag?'primary':'')}, [el('span',{class:'inner'}, t)]);
+    b.addEventListener('click', () => { tag = t; Array.from(tagRow.children).forEach(c=>c.classList.remove('primary')); b.classList.add('primary'); });
+    tagRow.appendChild(b);
+  });
+  wrap.appendChild(tagRow);
+  const v = await modal({title:'Quick note', content: wrap, buttons:[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]});
+  if (!v) return;
+  const text = ta.value.trim(); if (!text) return;
+  SESSION.notes.push({ block, ...ctx, text, tag, time: Date.now() });
+  persistSession();
+  logEvent('step_note', { block, ...ctx, tag });
+  toast('Note saved');
+}
+
 function modal({ title, message, content, buttons, dismissible=false }) {
   return new Promise(resolve => {
     const overlay = el('div',{class:'modal-overlay'});
@@ -625,6 +663,37 @@ function modal({ title, message, content, buttons, dismissible=false }) {
     document.body.appendChild(overlay);
   });
 }
+// Scale-degree picker for the drone long-press. Shows 12 chromatic options
+// labeled by degree relative to today's tonic; tapping resolves with the
+// chosen pitch class, Cancel/backdrop resolves null.
+function openDronePicker(currentPc, tonicPc) {
+  return new Promise(resolve => {
+    const labels = ['1','♭2','2','♭3','3','4','♭5','5','♭6','6','♭7','7'];
+    const overlay = el('div',{class:'modal-overlay'});
+    const card = el('div',{class:'modal-card'});
+    card.appendChild(el('div',{class:'modal-title'}, 'Drone pitch'));
+    card.appendChild(el('div',{class:'modal-message'}, `Relative to ${NOTE_NAMES[tonicPc]}. Tap to switch.`));
+    function close(v){ if (overlay.parentNode) overlay.parentNode.removeChild(overlay); resolve(v); }
+    const grid = el('div',{class:'drone-pick-grid'});
+    labels.forEach((lbl, semi) => {
+      const pc = (tonicPc + semi) % 12;
+      const btn = el('button',{class:'drone-pick-btn ' + (pc===currentPc?'primary':'')},[
+        el('div',{class:'dp-degree'}, lbl),
+        el('div',{class:'dp-note'}, NOTE_NAMES[pc]),
+      ]);
+      btn.addEventListener('click', () => close(pc));
+      grid.appendChild(btn);
+    });
+    card.appendChild(grid);
+    const cancelBtn = el('button',{class:'modal-btn'}, [el('span',{class:'inner'}, 'Cancel')]);
+    cancelBtn.addEventListener('click', () => close(null));
+    card.appendChild(el('div',{class:'modal-btns'}, [cancelBtn]));
+    overlay.appendChild(card);
+    overlay.addEventListener('click', e => { if (e.target===overlay) close(null); });
+    document.body.appendChild(overlay);
+  });
+}
+
 function askConfirm(title, message, { okLabel='Yes', cancelLabel='No', danger=false } = {}) {
   return modal({ title, message, buttons: [
     { label: cancelLabel, value: false },
@@ -1103,11 +1172,16 @@ function screenScalesTechnical() {
 
     // Audio control panel — big, prominent
     const histPrev = tempoHistoryFor(info.rootName, info.minor);
-    body.appendChild(buildAudioPanel({ dronePc, droneLabel: NOTE_NAMES[dronePc], onTempoChange: bpm => {
-      SESSION.tempo = bpm;
-      SESSION.tempoEvents.push({ t: Date.now(), to: bpm, kind: 'manual', stepIdx });
-      logEvent('tempo_change', { bpm, stepIdx });
-    } }));
+    body.appendChild(buildAudioPanel({
+      dronePc,
+      droneLabel: NOTE_NAMES[dronePc],
+      tonicPc: info.rootPc, // long-press picker shows degrees relative to the week's tonic, not the drone pitch
+      onTempoChange: bpm => {
+        SESSION.tempo = bpm;
+        SESSION.tempoEvents.push({ t: Date.now(), to: bpm, kind: 'manual', stepIdx });
+        logEvent('tempo_change', { bpm, stepIdx });
+      },
+    }));
     if (histPrev.length) {
       const last = histPrev[histPrev.length-1];
       body.appendChild(el('div',{class:'tempo-hint'},
@@ -1116,6 +1190,8 @@ function screenScalesTechnical() {
     }
 
     body.appendChild(el('div',{class:'bowing-line'}, `Bowing — ${dayBowing(dow)}`));
+    const bowDetail = dayBowingDetail(dow);
+    if (bowDetail) body.appendChild(el('div',{class:'bowing-detail'}, bowDetail));
 
     const stepTitle = el('h2',{id:'stepTitle', class:'step-title'}, 'Ready when you are');
     const stepSub = el('p',{id:'stepSub',class:'dim step-sub'}, 'Tap Start to begin the first scale.');
@@ -1137,9 +1213,11 @@ function screenScalesTechnical() {
       showStep(stepIdx - 1);
     });
     const startBtn = el('button',{class:'big primary', onclick: ()=>{ if (!started) begin(); else nextStep(); }}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
+    const noteBtn  = el('button',{class:'chip', onclick: () => dropStepNote('scales-technical', { stepIdx, stepTitle: steps[stepIdx]?.title })}, '+ Note');
     const recBtn   = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
     bottom.appendChild(backBtn);
     bottom.appendChild(startBtn);
+    bottom.appendChild(noteBtn);
     bottom.appendChild(recBtn);
 
     function fmtElapsed(ms){ return fmtSec(ms/1000); }
@@ -1208,15 +1286,54 @@ function screenScalesTechnical() {
 // Inline audio control panel — used in scales screens (full) and piece blocks
 // (compact: drone + metro side-by-side, no inline volumes — those live in the
 // drawer when needed).
-function buildAudioPanel({ dronePc, droneLabel, onTempoChange, compact = false, showTempo = true }) {
+//   tonicPc — used for the long-press scale-degree picker. Defaults to dronePc.
+function buildAudioPanel({ dronePc, droneLabel, onTempoChange, compact = false, showTempo = true, tonicPc = null }) {
   const wrap = el('div',{class: 'audio-panel' + (compact ? ' compact' : '')});
+  const pickerTonic = tonicPc != null ? tonicPc : dronePc;
 
   const droneToggle = el('button',{class:'ap-toggle big-toggle ' + (SETTINGS.drone_on?'on':'off')}, [
     el('div',{class:'ap-label'}, 'Drone'),
     el('div',{class:'ap-value', id:'apDroneVal'}, droneLabel || ''),
     el('div',{class:'ap-state', id:'apDroneState'}, SETTINGS.drone_on ? 'ON' : 'OFF'),
   ]);
+
+  // Long-press → scale-degree picker. Lets the user shift the drone to any
+  // degree relative to today's tonic (logged if changed).
+  let pressTimer = null;
+  let longPressFired = false;
+  droneToggle.addEventListener('pointerdown', () => {
+    longPressFired = false;
+    pressTimer = setTimeout(async () => {
+      pressTimer = null;
+      longPressFired = true;
+      if (pickerTonic == null) return;
+      const startPc = (AUDIO.currentDronePc != null) ? AUDIO.currentDronePc : (dronePc != null ? dronePc : pickerTonic);
+      const picked = await openDronePicker(startPc, pickerTonic);
+      if (picked == null) return;
+      SETTINGS.drone_on = true;
+      kvSet('settings', SETTINGS);
+      droneToggle.classList.add('on'); droneToggle.classList.remove('off');
+      $('#apDroneState').textContent = 'ON';
+      $('#apDroneVal').textContent = NOTE_NAMES[picked];
+      AUDIO.startDrone(picked);
+      if (picked !== startPc) {
+        const fromName = NOTE_NAMES[startPc], toName = NOTE_NAMES[picked];
+        const at = SESSION ? fmtMs(activeTimeNow()) : '';
+        if (SESSION) {
+          SESSION.notes.push({ block:'drone', text:`Drone changed from ${fromName} to ${toName}${at?' at '+at:''}`, time: Date.now() });
+          persistSession();
+        }
+        logEvent('drone_pitch_change', { from: startPc, to: picked, fromName, toName });
+      }
+    }, 500);
+  });
+  const cancelPress = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+  droneToggle.addEventListener('pointerup', cancelPress);
+  droneToggle.addEventListener('pointerleave', cancelPress);
+  droneToggle.addEventListener('pointercancel', cancelPress);
+
   droneToggle.addEventListener('click', () => {
+    if (longPressFired) { longPressFired = false; return; }
     SETTINGS.drone_on = !SETTINGS.drone_on; kvSet('settings', SETTINGS);
     droneToggle.classList.toggle('on', SETTINGS.drone_on);
     droneToggle.classList.toggle('off', !SETTINGS.drone_on);
@@ -1449,8 +1566,9 @@ function screenScalesModal() {
 
     const startBtn = el('button',{class:'big primary'}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
     startBtn.addEventListener('click', () => { if (!started) begin(); else nextStep(); });
+    const noteBtn = el('button',{class:'chip', onclick: () => dropStepNote('scales-modal', { stepIdx, stepTitle: steps[stepIdx]?.title, mode: data.modeName })}, '+ Note');
     const recBtn = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
-    root.appendChild(el('div',{class:'band-bottom'},[startBtn, recBtn]));
+    root.appendChild(el('div',{class:'band-bottom'},[startBtn, noteBtn, recBtn]));
 
     function tick(){
       if (stepIdx<0) return;

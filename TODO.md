@@ -27,8 +27,8 @@ Practice-driven feedback. Each session adds items here. Triaged into ship-now / 
 
 ### Ship later (features that need design)
 
-- [ ] **Long-press drone toggle → scale-degree picker.** Pop a slider so you can shift drone to any scale degree mid-session. If changed away from the day's intended degree, log to that day's session notes ("drone changed from 5 to b3 at 04:32").
-- [ ] **Per-step note prompts in scales.** After each substep (subdominant arp, dom7 arp, etc.) a quick "anything to note?" before moving on. Current flow auto-advances and there's no time to drop a thought. Keep it skippable.
+- [x] **Long-press drone toggle → scale-degree picker.** 500ms hold on the drone toggle opens a 12-degree picker (♭2, 2, ♭3, 3, 4, ♭5, 5, ♭6, 6, ♭7, 7) labeled relative to today's tonic (passed in as `tonicPc` from each screen). Tap a degree → drone retunes, written to `SESSION.notes` with timestamp and to the action log. Tap-to-toggle still works — long-press flag prevents the click handler from also firing.
+- [x] **Per-step note prompts in scales.** New `+ Note` chip in band-bottom on scales technical and modal screens. Quick text + worked / didn't / neutral tag, saved to `SESSION.notes` with `block`, `stepIdx`, and `stepTitle` context so the session-detail view can group them. Skippable — Cancel is a no-op.
 - [x] **Chord-scale block redesign.**
   - [x] Roman numerals + scale name shown under each chord (now-playing card and progression chart). Modal vamps include parent mode label, e.g. `i7 · dorian`.
   - [x] Loop counter visible. Loop 1 reads "Listen — don't play. Hear where the changes fall." Loops 2+ flip to "Improvise — clean scale switches across the bar lines."
@@ -37,7 +37,7 @@ Practice-driven feedback. Each session adds items here. Triaged into ship-now / 
   - [x] Audible metronome at loopTempo while the chord-scale block runs. Tempo +/- retunes the metronome live.
   - [x] Voice-led chord placement — pitch classes for the next chord are placed at the octave that minimizes movement from the previous voicing (greedy match). Common tones stay put.
 - [x] **Manual record toggle for system improv.** Auto-recording removed. Band-bottom now has a Record button alongside Note and Done. Toggles between Record / Stop with toast feedback. The wrap-up still works without a recording (the existing `if (rec)` guards already handled that case).
-- [ ] **Bowing — notes per bow.** "How many notes per bow? quarter / eighth / half / whole for the bpm?" Currently bowing is named ("sustained", "detaché", "slurred 4", "slurred 8") but the rhythmic implementation isn't pinned. Decide a sequence per bowing × tempo, render to user.
+- [x] **Bowing — notes per bow.** Default subdivision suggestion now renders under the bowing line on scales technical: `long bow · half notes · 1 per stroke` (Mon), `♩ quarter notes · 1 per bow` (Tue), `♫ eighth notes · 4 per bow` (Wed), `♬ sixteenth notes · 8 per bow` (Thu), `your choice — note what you played` (Fri). Suggestions are at practice tempo (60–80 bpm); player can deviate and capture via the new `+ Note` button.
 
 ### Answers-only (questions, not code changes)
 

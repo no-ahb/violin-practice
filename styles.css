@@ -209,6 +209,23 @@ ul.bare { list-style: none; }
 .tempo-stack { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px solid currentColor; padding: 8px; }
 .tempo-display { font-family: 'Instrument Sans', 'Inter', sans-serif; font-size: 44px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
 .tempo-label { font-size: 11px; letter-spacing: .28em; opacity: .65; margin-top: 2px; }
+.bowing-detail { font-size: 13px; opacity: .7; margin-top: -4px; }
+
+/* Drone scale-degree picker (long-press the drone toggle) */
+.drone-pick-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  margin: 10px 0 14px;
+}
+.drone-pick-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; padding: 10px 6px; min-height: 64px;
+  border: 1.5px solid currentColor; background: transparent;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.drone-pick-btn.primary { background: currentColor; }
+.drone-pick-btn.primary > * { color: var(--bg); }
+.dp-degree { font-size: 18px; font-weight: 700; line-height: 1; }
+.dp-note { font-size: 11px; opacity: .7; letter-spacing: .12em; text-transform: uppercase; }
 
 /* Compact audio panel — used in Adagio/Fuga where notes need to share the
    page. Drone + metro side-by-side; smaller toggles and tempo controls. */
