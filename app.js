@@ -214,6 +214,7 @@ let CURRENT_SCREEN = 'boot';
 // ---------- Settings & state ----------
 const defaultSettings = {
   startDate: isoDate(),
+  performanceDate: '2026-05-17',
   referencePitch: 440,
   temperament: 'ji',
   handedness: 'right',
@@ -784,6 +785,14 @@ async function screenHome() {
     ]);
     root.appendChild(hero);
 
+    // Sessions count + days-to-show countdown
+    const todayMid = new Date(); todayMid.setHours(0,0,0,0);
+    const perf = new Date(SETTINGS.performanceDate || '2026-05-17'); perf.setHours(0,0,0,0);
+    const daysToShow = Math.max(0, Math.ceil((perf - todayMid) / 86400000));
+    const sessLabel = `${SESSION_COUNT_CACHE} session${SESSION_COUNT_CACHE===1?'':'s'}`;
+    const showLabel = daysToShow === 0 ? 'show day' : `${daysToShow} d to show`;
+    root.appendChild(el('div',{class:'hero-meta'}, `${sessLabel} · ${showLabel}`));
+
     if (pendingImprov) {
       root.appendChild(el('div',{class:'banner', onclick: ()=>screenRecordings()}, 'Yesterday\'s improv needs 2 notes — tap to annotate'));
     }
@@ -1063,8 +1072,18 @@ function screenScalesTechnical() {
 
     const bottom = el('div',{class:'band-bottom'});
     root.appendChild(bottom);
+    const backBtn = el('button',{class:'chip'}, 'Back');
+    backBtn.style.visibility = 'hidden';
+    backBtn.addEventListener('click', () => {
+      if (stepIdx <= 0) return;
+      stepTimes[stepIdx] = undefined;
+      logEvent('scale_step_back', { from: stepIdx });
+      AUDIO.chime();
+      showStep(stepIdx - 1);
+    });
     const startBtn = el('button',{class:'big primary', onclick: ()=>{ if (!started) begin(); else nextStep(); }}, [el('span',{class:'inner', id:'startInner'}, 'Start')]);
     const recBtn   = el('button',{class:'chip', onclick: toggleRecord}, 'Record');
+    bottom.appendChild(backBtn);
     bottom.appendChild(startBtn);
     bottom.appendChild(recBtn);
 
@@ -1086,6 +1105,7 @@ function screenScalesTechnical() {
       $('#stepSub').textContent = s.sub;
       $('#noteLine').textContent = notesAsLine(s.notes);
       $('#startInner').textContent = (i === steps.length-1) ? 'Finish' : 'Next';
+      backBtn.style.visibility = (i > 0) ? '' : 'hidden';
       logEvent('scale_step_start', { i, title: s.title });
       clearTimeout(stepTickT); tick();
     }
@@ -1559,8 +1579,16 @@ function screenScalesChordScale() {
           if (bar % barsPerChord === 0) {
             const chord = prog.bars[ci];
             AUDIO.playChord(chord.root, chord.tones, nextBarAt, secPerBar * barsPerChord * 0.95, isModal);
-            chordIdx = ci;
-            requestAnimationFrame(refreshChord);
+            // Delay the visual update to fire when the chord actually starts
+            // sounding, not when it's pre-scheduled — otherwise the display
+            // races up to 0.6s ahead of the audio and the playing chord appears
+            // to vanish before its turn.
+            const playAtMs = (nextBarAt - AUDIO.ctx.currentTime) * 1000;
+            setTimeout(() => {
+              if (!running || paused || finished) return;
+              chordIdx = ci;
+              refreshChord();
+            }, Math.max(0, playAtMs));
           }
           nextBarAt += secPerBar;
           bar++;
@@ -2593,7 +2621,26 @@ async function boot() {
   await kvSet('settings', SETTINGS);
   AUDIO = new AudioEngine();
   await refreshSessionCount();
+  setupSessionClock();
   screenHome();
+}
+
+// Floating session-clock overlay — shows activeTimeNow on every screen while a
+// session is in progress, hidden otherwise. One element, one interval.
+function setupSessionClock() {
+  if (document.getElementById('sessionClock')) return;
+  const clock = document.createElement('div');
+  clock.id = 'sessionClock';
+  clock.style.display = 'none';
+  document.body.appendChild(clock);
+  setInterval(() => {
+    if (SESSION) {
+      clock.textContent = fmtMs(activeTimeNow());
+      clock.style.display = '';
+    } else {
+      clock.style.display = 'none';
+    }
+  }, 1000);
 }
 boot().catch(e => {
   document.body.innerHTML = '<pre style="color:#f4f1ea;padding:20px;">Boot error: '+e.message+'</pre>';

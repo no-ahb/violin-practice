@@ -17,13 +17,13 @@ Practice-driven feedback. Each session adds items here. Triaged into ship-now / 
 ### Ship next pass (bugs that need careful work)
 
 - [ ] **Drone fade glitch on toggle off.** Drone fades, briefly comes back, then goes silent. Race somewhere in `fadeDrone` / `stopDrone` — probably a scheduled buffer that fires after the fade ramp begins. Need to read the audio engine carefully.
-- [ ] Add countdown to performance (May 17) and days practiced logs. On home screen. 
+- [x] Add countdown to performance (May 17) and days practiced logs. On home screen.
 - [ ] **Recording playback stop bug.** When you hit stop on playback, the recording doesn't actually stop for previous recordings. `listenBackUI` likely keeps a reference to the wrong audio element across re-renders.
-- [ ] **No back button if you accidentally hit Next during scales.** Add a back button per step in the scales sub-blocks.
-- [ ] **Chord-scale: current chord disappears when it's being played.** Highlighting code is wrong — the active chord should stay visible, not toggle off.
+- [x] **No back button if you accidentally hit Next during scales.** Add a back button per step in the scales sub-blocks.
+- [x] **Chord-scale: current chord disappears when it's being played.** Highlighting code is wrong — the active chord should stay visible, not toggle off.
 - [ ] **Adagio drone + metronome don't work, and the UI doesn't match the scales screen.** Adagio should reuse the same audio panel widget as scales (drone toggle, metronome toggle, vol controls). Currently it has bespoke toggles that don't actually engage the audio engine.
 - [ ] **Modal block: drone doesn't retune to the mode tonic.** On Tuesday W1 the modal focus is C dorian (same-key displacement) but drone stays on F# from the technical block. Drone needs to retune to the mode's tonic on entry to the modal block. (Spec confirms: modal drone is always on the mode's tonic.)
-- [ ] **Add session timer in UI corner.** Small `activeTimeNow()` readout in a corner of every screen, updates per second.
+- [x] **Add session timer in UI corner.** Small `activeTimeNow()` readout in a corner of every screen, updates per second.
 
 ### Ship later (features that need design)
 
