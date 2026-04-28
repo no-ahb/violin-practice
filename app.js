@@ -1176,6 +1176,7 @@ function screenScalesTechnical() {
       dronePc,
       droneLabel: NOTE_NAMES[dronePc],
       tonicPc: info.rootPc, // long-press picker shows degrees relative to the week's tonic, not the drone pitch
+      compact: true, // fits on phone alongside bowing detail, step title, note line, clock
       onTempoChange: bpm => {
         SESSION.tempo = bpm;
         SESSION.tempoEvents.push({ t: Date.now(), to: bpm, kind: 'manual', stepIdx });
@@ -1530,7 +1531,7 @@ function screenScalesModal() {
     ]));
     const body = el('div',{class:'body stack'}); root.appendChild(body);
 
-    body.appendChild(buildAudioPanel({ dronePc: data.dronePc, droneLabel: NOTE_NAMES[data.dronePc], onTempoChange: bpm => logEvent('tempo_change', bpm) }));
+    body.appendChild(buildAudioPanel({ dronePc: data.dronePc, droneLabel: NOTE_NAMES[data.dronePc], compact: true, onTempoChange: bpm => logEvent('tempo_change', bpm) }));
 
     // Retune drone to the mode tonic the moment this screen renders, not
     // waiting for the user to tap Start. Otherwise the panel reads "Drone · C"
