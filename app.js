@@ -366,26 +366,27 @@ class AudioEngine {
     this.droneNode = { oscs, root };
     this.currentDronePc = pc;
   }
-  stopDrone() {
-    if (!this.droneNode) return;
+  // Stop the active drone with a configurable fade. Ramps the per-drone
+  // `root` bus to silence (NOT the master `droneGain` — touching that here
+  // caused a glitch where droneGain was instantly restored while the
+  // oscillators were still sounding through their own ramping bus).
+  stopDrone(fadeMs = 150) {
+    if (!this.droneNode || !this.ctx) return;
+    const node = this.droneNode;
+    this.droneNode = null;
+    this.currentDronePc = null;
     try {
       const now = this.ctx.currentTime;
-      this.droneNode.root.gain.cancelScheduledValues(now);
-      this.droneNode.root.gain.setValueAtTime(this.droneNode.root.gain.value, now);
-      this.droneNode.root.gain.linearRampToValueAtTime(0.0001, now + 0.15);
-      const oscs = this.droneNode.oscs;
-      setTimeout(()=>{ oscs.forEach(o => { try { o.stop(); o.disconnect(); } catch(e){} }); }, 200);
+      const fadeS = Math.max(0.01, fadeMs / 1000);
+      node.root.gain.cancelScheduledValues(now);
+      node.root.gain.setValueAtTime(node.root.gain.value, now);
+      node.root.gain.linearRampToValueAtTime(0.0001, now + fadeS);
+      setTimeout(()=>{ node.oscs.forEach(o => { try { o.stop(); o.disconnect(); } catch(e){} }); try { node.root.disconnect(); } catch(e){} }, fadeMs + 30);
     } catch(e){}
-    this.droneNode = null;
   }
-  fadeDrone(ms=800) {
-    if (!this.droneGain) return;
-    const now = this.ctx.currentTime;
-    this.droneGain.gain.cancelScheduledValues(now);
-    this.droneGain.gain.setValueAtTime(this.droneGain.gain.value, now);
-    this.droneGain.gain.linearRampToValueAtTime(0.0001, now + ms/1000);
-    setTimeout(()=>{ this.stopDrone(); this.droneGain.gain.value = SETTINGS.volumes.drone; }, ms+20);
-  }
+  // Slower fade-out (used on block transitions and toggle-off). Same path as
+  // stopDrone, just a longer ramp so the drop isn't abrupt.
+  fadeDrone(ms = 800) { this.stopDrone(ms); }
 
   // --- Metronome
   async startMetronome(bpm, accentEvery=0) {
@@ -613,6 +614,9 @@ function pickInk(hex){
 }
 
 function render(screenFn) {
+  // Any screen transition kills active recording playback. The Audio object
+  // would otherwise keep playing in the background after navigating away.
+  if (typeof stopCurrentPlayback === 'function') stopCurrentPlayback();
   const app = $('#app');
   app.innerHTML = '';
   pickColor();
@@ -1354,6 +1358,15 @@ function screenScalesModal() {
     const body = el('div',{class:'body stack'}); root.appendChild(body);
 
     body.appendChild(buildAudioPanel({ dronePc: data.dronePc, droneLabel: NOTE_NAMES[data.dronePc], onTempoChange: bpm => logEvent('tempo_change', bpm) }));
+
+    // Retune drone to the mode tonic the moment this screen renders, not
+    // waiting for the user to tap Start. Otherwise the panel reads "Drone · C"
+    // while the technical block's pitch (e.g. F# on Tue minor) is still
+    // sounding — a real intonation hazard called out in session-1 feedback.
+    // Spec: modal drone is always on the mode's tonic.
+    if (SETTINGS.drone_on && SESSION && AUDIO.ctx) {
+      AUDIO.startDrone(data.dronePc);
+    }
 
     body.appendChild(el('div',{class:'meta-row'},[
       el('div',{class:'meta-item'},[
@@ -2126,11 +2139,26 @@ function currentBlockKey() {
   return 'other';
 }
 
+// Tracks the active playback so we can hard-stop a previous recording when a
+// new one starts, when the drawer is dismissed, or when the user navigates
+// away. Without this, playing recording A then opening recording B left A
+// running because Done only hid the drawer; tapping Stop only paused the
+// current audio reference, not the orphaned previous one.
+let CURRENT_PLAYBACK = null;
+function stopCurrentPlayback() {
+  if (!CURRENT_PLAYBACK) return;
+  try { CURRENT_PLAYBACK.audio.pause(); } catch(e){}
+  try { URL.revokeObjectURL(CURRENT_PLAYBACK.url); } catch(e){}
+  CURRENT_PLAYBACK = null;
+}
+
 async function listenBackUI(rec) {
+  stopCurrentPlayback();
   return new Promise(res => {
     const d = $('#drawer'); d.classList.remove('hidden'); d.innerHTML='';
     const url = URL.createObjectURL(rec.blob);
     const audio = new Audio(url);
+    CURRENT_PLAYBACK = { audio, url };
     const wf = el('div',{class:'waveform'});
     const cur = el('div',{class:'cursor'}); wf.appendChild(cur);
     (rec.annotations||[]).forEach(a => {
@@ -2140,7 +2168,7 @@ async function listenBackUI(rec) {
     let playing = false;
     const playBtn = el('button',{class:'chip', onclick: ()=>{ if (playing){ audio.pause(); playBtn.textContent='Play'; } else { audio.play(); playBtn.textContent='Pause'; } playing=!playing; }}, 'Play');
     audio.addEventListener('timeupdate', () => cur.style.left = (audio.currentTime/rec.durationSec*100)+'%');
-    audio.addEventListener('ended', ()=>{ playing=false; playBtn.textContent='Play'; });
+    audio.addEventListener('ended', ()=>{ playing=false; playBtn.textContent='Play'; if (CURRENT_PLAYBACK?.audio === audio) CURRENT_PLAYBACK = null; });
     wf.addEventListener('click', async e => {
       audio.pause(); playing=false; playBtn.textContent='Play';
       const pct = (e.offsetX / wf.clientWidth);
@@ -2167,7 +2195,13 @@ async function listenBackUI(rec) {
     d.appendChild(wf);
     d.appendChild(el('div',{class:'row wrap', style:'margin-top:12px;'},[
       playBtn,
-      el('button',{class:'chip', onclick: async ()=>{ d.classList.add('hidden'); URL.revokeObjectURL(url); res(); }}, 'Done'),
+      el('button',{class:'chip', onclick: async ()=>{
+        try { audio.pause(); } catch(e){}
+        d.classList.add('hidden');
+        if (CURRENT_PLAYBACK?.audio === audio) CURRENT_PLAYBACK = null;
+        URL.revokeObjectURL(url);
+        res();
+      }}, 'Done'),
     ]));
   });
 }
