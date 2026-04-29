@@ -2187,6 +2187,36 @@ function screenImprov() {
       body.appendChild(el('button',{class:'chip', onclick: ()=>{ SETTINGS.acousticIdx++; kvSet('settings',SETTINGS); screenImprov(); }}, 'Rotate constraint'));
     }
     body.appendChild(el('p',{class:'dim'}, ambient));
+
+    const today = isoDate();
+    let lastWrap = null;
+    try {
+      const sessions = (await idbAll('sessions')).filter(s => s && s.date && s.date < today && s.blocks?.improv?.done);
+      sessions.sort((a,b)=>b.date.localeCompare(a.date));
+      for (const s of sessions) {
+        const w = (s.notes||[]).filter(n=>n.block==='improv_wrap').sort((a,b)=>(b.time||0)-(a.time||0))[0];
+        if (w?.text) { lastWrap = { date: s.date, text: w.text, tag: w.tag, feeling: w.feeling, focus: w.focus }; break; }
+      }
+      if (!lastWrap) {
+        const recs = (await idbAll('recordings')).filter(r => r.block==='improv' && r.date && r.date < today);
+        recs.sort((a,b)=>(b.id||'').localeCompare(a.id||''));
+        for (const r of recs) {
+          const wrap = (r.annotations||[]).find(a => a && a.atSec==null && a.text);
+          if (wrap) { lastWrap = { date: r.date, text: wrap.text, tag: wrap.tag, feeling: r.feeling, focus: r.focus }; break; }
+        }
+      }
+    } catch {}
+    if (lastWrap) {
+      const meta = [`Last improv · ${lastWrap.date}`];
+      if (lastWrap.tag) meta.push(lastWrap.tag);
+      if (lastWrap.feeling) meta.push(`feel ${lastWrap.feeling}`);
+      if (lastWrap.focus) meta.push(`focus ${lastWrap.focus}`);
+      body.appendChild(el('div',{class:'meta-item'},[
+        el('div',{class:'meta-label'}, meta.join(' · ')),
+        el('div',{class:'meta-value', style:'white-space:pre-wrap; font-size:14px; line-height:1.5;'}, lastWrap.text),
+      ]));
+    }
+
     body.appendChild(el('div',{class:'menu-eyebrow', style:'margin-top:8px;'}, 'Notes captured'));
     const notesList = el('div',{class:'list', id:'notes'}); body.appendChild(notesList);
 
@@ -2318,6 +2348,7 @@ function screenImprovWrapUp({ rec, system, patch, longSession }){
       }
       const annotations = (SESSION.notes||[]).filter(n=>n.block==='improv' && n.atSec!=null).map(n=>({atSec:n.atSec,text:n.text,tag:n.tag}));
       annotations.push({ atSec: null, text: note, tag });
+      SESSION.notes.push({ block:'improv_wrap', text: note, tag, feeling, focus, time: Date.now() });
       if (rec) {
         rec.annotations = annotations; rec.feeling = feeling; rec.focus = focus; rec.longSession = longSession;
         await idbSet('recordings', null, rec);
@@ -2328,7 +2359,7 @@ function screenImprovWrapUp({ rec, system, patch, longSession }){
       }
       SESSION.blocks.improv = { done:true, system, patchVersion: patch?.version };
       persistSession();
-      logEvent('improv_save', { feeling, focus, tag, recId: rec?.id });
+      logEvent('improv_save', { feeling, focus, tag, recId: rec?.id, note });
       screenClose();
     }
   });
@@ -2951,6 +2982,20 @@ async function boot() {
     SETTINGS.startDate = '2026-04-27';
   }
   await kvSet('settings', SETTINGS);
+  try {
+    if (!localStorage.getItem('mig_improv_wrap_2026_04_29')) {
+      const noteText = "So I did take a recording on my laptop, which is probably worth listening back to. It just kind of diffuses and loses focus, which might be the nature of the patch itself. I think I need to listen to more things or just let it sit a little longer, maybe just try with a lot more space. I think after about 10 minutes it gets quite boring. If I try to bring in too many new textures, it starts to lose focus entirely. It's very hard to find that in between where it's focused and yet diverse enough to be of interest.\n\nFinding more nuance, I guess, within these things, thinking about how they overlap a lot, is left to chance, which just leaves it a bit open-ended for me in terms of the loop length. Maybe there can be a little more craft in determining the lengths of the loop. I think there's a little sound design stuff: the reverb and the pitch-shift sounds kind of bad and could be improved. I didn't even touch the distortion this time so maybe that should be replaced by something else or taken out entirely. Maybe it just needs some backing tracks and some kind of clear structure before I'll give it a couple more days to play with and see what happens.";
+      const target = (await idbAll('sessions')).filter(s => s && s.date === '2026-04-29' && s.blocks?.improv?.done).sort((a,b)=>(b.id||'').localeCompare(a.id||''))[0];
+      if (target) {
+        target.notes = target.notes || [];
+        if (!target.notes.some(n => n.block === 'improv_wrap')) {
+          target.notes.push({ block: 'improv_wrap', text: noteText, tag: 'neutral', feeling: 3, focus: 2, time: 1777464292772 });
+          await idbSet('sessions', null, target);
+        }
+      }
+      localStorage.setItem('mig_improv_wrap_2026_04_29', 'done');
+    }
+  } catch(e) {}
   AUDIO = new AudioEngine();
   await refreshSessionCount();
   setupSessionClock();
